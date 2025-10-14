@@ -3,13 +3,28 @@
 <head>
   <base target="_top">
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  
   <style>
-    body { background-color: #f8f9fa; }
-    .main-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    #input-nilai-view, #login-view, #dashboard-view, #loading-view { display: none; }
-    .nilai-input { width: 80px; text-align: center; }
+    body { 
+      background-color: #f8f9fa; 
+    }
+    .main-container { 
+      min-height: 100vh; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+    }
+    /* Sembunyikan semua view utama secara default */
+    #input-nilai-view, #login-view, #dashboard-view, #loading-view { 
+      display: none; 
+    }
+    .nilai-input { 
+      width: 80px; 
+      text-align: center; 
+    }
+    /* Gaya untuk input nilai yang tidak valid */
     .nilai-input.is-invalid {
-        border-color: #dc3545; /* Warna merah bootstrap untuk error */
+        border-color: #dc3545;
     }
   </style>
 </head>
@@ -57,7 +72,9 @@
             <p class="card-text">Silakan pilih tahun ajaran untuk memulai menginput atau mengedit nilai.</p>
             <div class="form-group">
                 <label for="tahun-ajaran-select">Tahun Ajaran</label>
-                <select id="tahun-ajaran-select" class="form-control"></select>
+                <select id="tahun-ajaran-select" class="form-control">
+                  <option>Memuat...</option>
+                </select>
             </div>
             <button class="btn btn-primary" onclick="goToInputNilai()">Lanjutkan ke Input Nilai</button>
         </div>
@@ -102,6 +119,7 @@
           <button id="submit-button" class="btn btn-success mt-3" onclick="submitSemuaNilai()">Simpan Semua Nilai</button>
           <div id="status" class="mt-3"></div>
         </div>
+
         <div id="loading-spinner-table" class="text-center mt-4" style="display: none;">
             <div class="spinner-border" role="status"><span class="sr-only">Loading...</span></div>
             <p>Memuat data siswa...</p>
@@ -111,11 +129,16 @@
   </div>
 
 <script>
+    // --- VARIABEL GLOBAL ---
     let loggedInUser = null;
     let selectedTahunAjaran = null;
+    let currentMapelRequestID = 0;
+    let cachedTahunAjaran = null;
+    // PERUBAHAN: Variabel untuk cache data mapel
+    let cachedMapel = null;
 
-    // --- BLOK FUNGSI LOGIN & SESI ---
-    document.addEventListener("DOMContentLoaded", function() { checkSession(); });
+    // --- MANAJEMEN SESI & OTENTIKASI ---
+    document.addEventListener("DOMContentLoaded", checkSession);
 
     function checkSession() {
         const token = localStorage.getItem('authToken');
@@ -129,6 +152,9 @@
     function onTokenVerified(user) {
         if (user) {
             loggedInUser = user;
+            // Ambil semua data awal yang diperlukan
+            google.script.run.withSuccessHandler(onTahunAjaranLoaded).getTahunAjaran();
+            google.script.run.withSuccessHandler(onAllMapelLoaded).getAllMapelForGuru(user.email);
             showDashboard();
         } else {
             forceLogout();
@@ -136,16 +162,12 @@
     }
 
     function handleLogin() {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
+        const credentials = { email: document.getElementById('email').value, password: document.getElementById('password').value };
         const button = document.getElementById('login-button');
-        const alertBox = document.getElementById('login-alert');
-
         button.disabled = true;
         button.innerText = 'Memverifikasi...';
-        alertBox.style.display = 'none';
+        document.getElementById('login-alert').style.display = 'none';
 
-        const credentials = { email: email, password: password };
         google.script.run.withSuccessHandler(onLoginSuccess).withFailureHandler(onLoginFailure).userLogin(credentials);
     }
 
@@ -153,22 +175,30 @@
         if (user && user.token) {
             localStorage.setItem('authToken', user.token);
             loggedInUser = user;
+            // Ambil semua data awal yang diperlukan
+            google.script.run.withSuccessHandler(onTahunAjaranLoaded).getTahunAjaran();
+            google.script.run.withSuccessHandler(onAllMapelLoaded).getAllMapelForGuru(user.email);
             showDashboard();
         } else {
             onLoginFailure("Email atau password salah.");
         }
     }
+    
+    function onLoginFailure(error) {
+        const button = document.getElementById('login-button');
+        const alertBox = document.getElementById('login-alert');
+        alertBox.innerText = error.toString();
+        alertBox.style.display = 'block';
+        button.disabled = false;
+        button.innerText = 'Login';
+    }
 
-    // --- BLOK FUNGSI NAVIGASI & TAMPILAN ---
+
+    // --- NAVIGASI & TAMPILAN (UI) ---
+
     function showView(viewId, displayType = 'block') {
         ['loading-view', 'login-view', 'dashboard-view', 'input-nilai-view'].forEach(id => {
-            const el = document.getElementById(id);
-            if(id === 'input-nilai-view' || id === 'dashboard-view') {
-                 // Untuk container, gunakan 'block' agar tidak memengaruhi layout internal
-                 el.style.display = 'none';
-            } else {
-                 el.style.display = 'none';
-            }
+            document.getElementById(id).style.display = 'none';
         });
         document.getElementById(viewId).style.display = displayType;
     }
@@ -176,7 +206,9 @@
     function showDashboard() {
         showView('dashboard-view');
         document.getElementById('welcome-message-dash').innerText = `Halo, ${loggedInUser.nama}`;
-        google.script.run.withSuccessHandler(populateTahunAjaran).getTahunAjaran();
+        if (cachedTahunAjaran) {
+            populateTahunAjaran(cachedTahunAjaran);
+        }
     }
     
     function populateTahunAjaran(data) {
@@ -185,6 +217,18 @@
         data.forEach(item => {
             select.add(new Option(item.deskripsi, item.id_tahun_ajaran));
         });
+    }
+
+    function onTahunAjaranLoaded(data) {
+        cachedTahunAjaran = data;
+        if (document.getElementById('dashboard-view').style.display !== 'none') {
+            populateTahunAjaran(data);
+        }
+    }
+
+    // PERUBAHAN: Fungsi baru untuk menyimpan cache mapel
+    function onAllMapelLoaded(data) {
+        cachedMapel = data;
     }
 
     function goToInputNilai() {
@@ -200,41 +244,79 @@
         showView('input-nilai-view');
         document.getElementById('welcome-message-input').innerText = `Halo, ${loggedInUser.nama}`;
         document.getElementById('tahun-ajaran-info').innerText = `Tahun Ajaran: ${selectedTahunAjaran.deskripsi}`;
-
-        const mapelSelect = document.getElementById('mapel-select');
-        mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
-        loggedInUser.mapel.forEach(m => mapelSelect.add(new Option(m, m)));
+        
+        // PERUBAHAN: Ambil data mapel langsung dari cache, tidak perlu panggil server.
+        const mapelList = cachedMapel[selectedTahunAjaran.id] || [];
+        onMapelLoaded(mapelList); // Langsung panggil fungsi untuk mengisi dropdown
 
         document.getElementById('table-container').style.display = 'none';
         document.getElementById('status').innerHTML = '';
     }
+
+    function onMapelLoaded(mapelList) {
+        const mapelSelect = document.getElementById('mapel-select');
+        mapelSelect.innerHTML = '';
+        mapelSelect.disabled = false;
+
+        if (mapelList && mapelList.length > 0) {
+            mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
+            mapelList.forEach(m => mapelSelect.add(new Option(m, m)));
+        } else {
+            mapelSelect.innerHTML = '<option value="" selected disabled>Mapel tidak ditemukan</option>';
+        }
+    }
+
 
     function backToDashboard() {
         showDashboard();
     }
 
-    // --- BLOK FUNGSI INPUT NILAI ---
+
+    // --- LOGIKA INPUT & MANAJEMEN NILAI ---
+    
     function loadNilaiTable() {
         const mapel = document.getElementById('mapel-select').value;
         if (!mapel) return;
+
+        currentMapelRequestID++;
+        const thisRequestID = currentMapelRequestID;
 
         document.getElementById('table-container').style.display = 'none';
         document.getElementById('loading-spinner-table').style.display = 'block';
         document.getElementById('status').innerHTML = '';
 
-        google.script.run.withSuccessHandler(onDataLoaded).getSiswaAndNilai(loggedInUser.id_sekolah, mapel, selectedTahunAjaran.id);
+        google.script.run
+            .withSuccessHandler(onDataLoaded)
+            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, selectedTahunAjaran.id, thisRequestID);
     }
 
-    function onDataLoaded(data) {
+    function onDataLoaded(response) {
+        if (response.requestID !== currentMapelRequestID) {
+            console.log(`Mengabaikan data usang. ID Data: ${response.requestID}, ID Seharusnya: ${currentMapelRequestID}`);
+            return; 
+        }
+
         const tableBody = document.getElementById('nilai-table-body');
         tableBody.innerHTML = ''; 
+        
+        const data = response.siswaData; 
+
         if (data && data.length > 0) {
             data.forEach((item, index) => {
-                const row = `<tr><td>${index + 1}</td><td>${item.nama}</td><td><input type="number" class="form-control nilai-input" value="${item.nilai}" min="0" max="100" inputmode="numeric" pattern="[0-9]*" oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" data-nomor-ujian="${item.nomor_ujian}"></td></tr>`;
+                const row = `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${item.nama}</td>
+                        <td>
+                            <input type="number" class="form-control nilai-input" value="${item.nilai}" min="0" max="100" inputmode="numeric" 
+                                   oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" 
+                                   data-nomor-ujian="${item.nomor_ujian}" data-original-nilai="${item.nilai}">
+                        </td>
+                    </tr>`;
                 tableBody.innerHTML += row;
             });
         } else {
-            tableBody.innerHTML = '<tr><td colspan="3" class="text-center">Data siswa untuk tahun ajaran ini tidak ditemukan.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="3" class="text-center">Data siswa tidak ditemukan.</td></tr>';
         }
         document.getElementById('loading-spinner-table').style.display = 'none';
         document.getElementById('table-container').style.display = 'block';
@@ -245,58 +327,46 @@
         const statusDiv = document.getElementById('status');
         const inputs = document.querySelectorAll('.nilai-input');
         const dataToSave = [];
-        let adaError = false;
+        let hasError = false;
 
         inputs.forEach(input => {
             input.classList.remove('is-invalid');
-        });
-
-        inputs.forEach(input => {
             const nilai = parseFloat(input.value);
-
             if (input.value !== '' && (isNaN(nilai) || nilai < 0 || nilai > 100)) {
                 input.classList.add('is-invalid');
-                adaError = true;
+                hasError = true;
             }
-
-            // PERBAIKAN UTAMA DI SINI: Mengambil nomor ujian langsung dari atribut data
-            dataToSave.push({
-                nomorUjian: input.getAttribute('data-nomor-ujian'),
-                nilai: input.value
-            });
+            if (input.value !== input.getAttribute('data-original-nilai')) {
+                dataToSave.push({
+                    nomorUjian: input.getAttribute('data-nomor-ujian'),
+                    nilai: input.value
+                });
+            }
         });
 
-        if (adaError) {
-            statusDiv.innerHTML = `<div class="alert alert-danger">Terdapat nilai yang tidak valid (harus antara 0-100). Silakan perbaiki yang ditandai merah.</div>`;
+        if (hasError) {
+            statusDiv.innerHTML = `<div class="alert alert-danger">Terdapat nilai yang tidak valid (0-100).</div>`;
             return;
         }
 
         if (dataToSave.length === 0) {
-            statusDiv.innerHTML = `<div class="alert alert-warning">Tidak ada data siswa untuk disimpan.</div>`;
+            statusDiv.innerHTML = `<div class="alert alert-info">Tidak ada perubahan data untuk disimpan.</div>`;
             return;
         }
         
-        // Filter data yang hanya akan disimpan jika nilainya diisi
-        const nilaiYangAkanDisimpan = dataToSave.filter(item => item.nilai !== '' && item.nilai !== null);
-
-        if (nilaiYangAkanDisimpan.length === 0) {
-            statusDiv.innerHTML = `<div class="alert alert-info">Tidak ada nilai baru untuk disimpan.</div>`;
-            return;
-        }
-        
-        // Tambahkan info mapel, guru, dan tahun ajaran ke array yang akan dikirim
-        const dataLengkap = nilaiYangAkanDisimpan.map(item => ({
+        const dataLengkap = dataToSave.map(item => ({
           ...item,
           mapel: document.getElementById('mapel-select').value,
           emailGuru: loggedInUser.email,
           id_tahun_ajaran: selectedTahunAjaran.id
         }));
 
-
         button.disabled = true;
-        statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan...</div>`;
-        // Kirim data yang sudah lengkap ke server
-        google.script.run.withSuccessHandler(onSaveSuccess).simpanAtauUpdateNilai(dataLengkap);
+        statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan ${dataLengkap.length} data perubahan...</div>`;
+        
+        google.script.run
+            .withSuccessHandler(onSaveSuccess)
+            .simpanAtauUpdateNilai(dataLengkap);
     }
     
     function onSaveSuccess(response) {
@@ -304,13 +374,18 @@
         const statusDiv = document.getElementById('status');
         if (response.startsWith("Sukses")) {
             statusDiv.innerHTML = `<div class="alert alert-success">${response}</div>`;
+            document.querySelectorAll('.nilai-input').forEach(input => {
+                input.setAttribute('data-original-nilai', input.value);
+            });
         } else {
             statusDiv.innerHTML = `<div class="alert alert-danger">${response}</div>`;
         }
         button.disabled = false;
     }
 
-    // --- BLOK FUNGSI UTILITAS ---
+
+    // --- FUNGSI UTILITAS ---
+    
     function logout() {
         localStorage.removeItem('authToken');
         forceLogout();
@@ -319,24 +394,18 @@
     function forceLogout() {
         loggedInUser = null;
         selectedTahunAjaran = null;
+        cachedTahunAjaran = null;
+        // PERUBAHAN: Hapus cache mapel saat logout
+        cachedMapel = null; 
         showView('login-view', 'flex');
         
-        const loginButton = document.getElementById('login-button');
         document.getElementById('email').value = '';
         document.getElementById('password').value = '';
+        const loginButton = document.getElementById('login-button');
         if(loginButton) {
             loginButton.disabled = false;
             loginButton.innerText = 'Login';
         }
-    }
-
-    function onLoginFailure(error) {
-        const button = document.getElementById('login-button');
-        const alertBox = document.getElementById('login-alert');
-        alertBox.innerText = error.toString();
-        alertBox.style.display = 'block';
-        button.disabled = false;
-        button.innerText = 'Login';
     }
 </script>
 </body>
