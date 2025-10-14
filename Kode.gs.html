@@ -1,0 +1,216 @@
+/**
+ * Menampilkan antarmuka aplikasi web utama.
+ * @returns {HtmlOutput} Halaman web aplikasi.
+ */
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('Input Nilai Ujian Madrasah')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+}
+
+/**
+ * Memverifikasi kredensial login (email & password).
+ * Jika berhasil, mengembalikan data guru beserta token uniknya.
+ * @param {object} credentials Objek berisi {email, password}.
+ * @returns {object|null} Objek data guru jika berhasil, atau null jika gagal.
+ */
+function userLogin(credentials) {
+  if (!credentials || !credentials.email || !credentials.password) {
+    return null;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const guruSheet = ss.getSheetByName('db_guru');
+  const dataGuru = guruSheet.getDataRange().getValues();
+
+  // Kolom: 0=email, 1=password, 2=nama, 3=id_sekolah, 4=mapel, 5=token
+  for (let i = 1; i < dataGuru.length; i++) {
+    const row = dataGuru[i];
+    if (row[0].toLowerCase() === credentials.email.toLowerCase() && row[1] === credentials.password) {
+      return {
+        email: row[0],
+        nama: row[2],
+        id_sekolah: row[3],
+        mapel: row[4].split(',').map(item => item.trim()),
+        token: row[5]
+      };
+    }
+  }
+  
+  return null; // Login gagal jika tidak ada yang cocok
+}
+
+/**
+ * Memverifikasi token sesi yang disimpan di browser.
+ * Digunakan agar pengguna tidak perlu login ulang saat me-reload halaman.
+ * @param {string} token Token yang dikirim dari browser.
+ * @returns {object|null} Data guru jika token valid, atau null jika tidak.
+ */
+function verifyToken(token) {
+  if (!token) return null;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const guruSheet = ss.getSheetByName('db_guru');
+  const dataGuru = guruSheet.getDataRange().getValues();
+
+  // Kolom: 5=token
+  for (let i = 1; i < dataGuru.length; i++) {
+    const row = dataGuru[i];
+    if (row[5] === token) { // Cek kecocokan token
+      return {
+        email: row[0],
+        nama: row[2],
+        id_sekolah: row[3],
+        mapel: row[4].split(',').map(item => item.trim()),
+        token: row[5]
+      };
+    }
+  }
+
+  return null; // Token tidak valid
+}
+
+/**
+ * FUNGSI BARU: Mengambil daftar semua tahun ajaran yang aktif.
+ * @returns {Array} Array objek {id_tahun_ajaran, deskripsi}.
+ */
+function getTahunAjaran() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('db_tahun_ajaran');
+  // Melakukan slice(1) untuk melewati baris header
+  return sheet.getDataRange().getValues().slice(1).map(row => {
+    return { id_tahun_ajaran: row[0], deskripsi: row[1] };
+  });
+}
+
+/**
+ * FUNGSI DIMODIFIKASI: Mengambil siswa & nilai berdasarkan sekolah DAN tahun ajaran.
+ * @param {string} id_sekolah ID sekolah.
+ * @param {string} nama_mapel Nama mata pelajaran.
+ * @param {string} id_tahun_ajaran ID tahun ajaran yang dipilih.
+ * @returns {Array} Array objek siswa {nomor_ujian, nama, nilai}.
+ */
+function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran) {
+  // --- LOGGING UNTUK DEBUG ---
+  console.log(`Mencari siswa untuk: id_sekolah='${id_sekolah}' (tipe: ${typeof id_sekolah}), id_tahun_ajaran='${id_tahun_ajaran}' (tipe: ${typeof id_tahun_ajaran})`);
+  // ----------------------------
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const siswaSheet = ss.getSheetByName('db_siswa');
+  const enrollmentSheet = ss.getSheetByName('db_enrollment');
+  const nilaiSheet = ss.getSheetByName('db_nilai');
+
+  const enrollmentData = enrollmentSheet.getDataRange().getValues().slice(1);
+
+  // --- LOGGING DATA DARI SHEET ENROLLMENT ---
+  if (enrollmentData.length > 0) {
+    let firstRow = enrollmentData[0];
+    console.log(`Membaca baris pertama db_enrollment: id_sekolah='${firstRow[2]}' (tipe: ${typeof firstRow[2]}), id_tahun_ajaran='${firstRow[3]}' (tipe: ${typeof firstRow[3]})`);
+  }
+  // ------------------------------------------
+
+  const enrolledSiswaIds = enrollmentData
+    .filter(row => String(row[2]).trim() == String(id_sekolah).trim() && String(row[3]).trim() == String(id_tahun_ajaran).trim()) // Menggunakan solusi paling aman
+    .map(row => row[1]); 
+
+  // --- LOGGING HASIL FILTER ---
+  console.log(`Jumlah siswa ditemukan setelah filter: ${enrolledSiswaIds.length}`);
+  // -----------------------------
+
+  if (enrolledSiswaIds.length === 0) return []; 
+
+  // ... sisa kode tidak perlu diubah ...
+  const masterSiswaMap = siswaSheet.getDataRange().getValues().slice(1)
+    .reduce((map, row) => {
+      map[row[0]] = row[1];
+      return map;
+    }, {});
+
+  const nilaiMap = nilaiSheet.getDataRange().getValues().slice(1)
+    .filter(row => row[2] == nama_mapel && row[6] == id_tahun_ajaran)
+    .reduce((map, row) => {
+      map[row[1]] = row[3]; 
+      return map;
+    }, {});
+
+  const result = enrolledSiswaIds.map(nomor_ujian => {
+    return {
+      nomor_ujian: nomor_ujian,
+      nama: masterSiswaMap[nomor_ujian] || 'Nama Tidak Ditemukan',
+      nilai: nilaiMap[nomor_ujian] || ''
+    };
+  });
+
+  return result;
+}
+
+/**
+ * FUNGSI DIMODIFIKASI: Menyimpan atau memperbarui nilai dengan menyertakan tahun ajaran.
+ * @param {Array} dataNilai Array objek {nomorUjian, nilai, mapel, emailGuru, id_tahun_ajaran}.
+ * @returns {string} Pesan status.
+ */
+function simpanAtauUpdateNilai(dataNilai) {
+  if (!dataNilai || dataNilai.length === 0) {
+    return "Tidak ada data untuk disimpan.";
+  }
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const nilaiSheet = ss.getSheetByName('db_nilai');
+  const range = nilaiSheet.getDataRange();
+  const values = range.getValues();
+  
+  const { mapel, emailGuru, id_tahun_ajaran } = dataNilai[0];
+
+  const existingDataMap = values.reduce((map, row, index) => {
+    if (index > 0) {
+      // Key sekarang lebih spesifik: nomorUjian_mapel_tahunAjaran
+      map[`${row[1]}_${row[2]}_${row[6]}`] = index;
+    }
+    return map;
+  }, {});
+  
+  const nilaiYangDiproses = dataNilai.filter(item => item.nilai !== '' && item.nilai !== null);
+
+  nilaiYangDiproses.forEach(item => {
+    const key = `${item.nomorUjian}_${mapel}_${id_tahun_ajaran}`;
+    const rowIndex = existingDataMap[key];
+
+    if (rowIndex) {
+      // UPDATE
+      nilaiSheet.getRange(rowIndex + 1, 4).setValue(item.nilai); // Kolom nilai
+      nilaiSheet.getRange(rowIndex + 1, 6).setValue(new Date()); // Kolom timestamp
+    } else {
+      // INSERT
+      nilaiSheet.appendRow([
+        new Date().getTime(), item.nomorUjian, mapel, item.nilai,
+        emailGuru, new Date(), id_tahun_ajaran // Tambahkan id_tahun_ajaran
+      ]);
+      existingDataMap[key] = nilaiSheet.getLastRow() - 1;
+    }
+  });
+
+  return `Sukses! ${nilaiYangDiproses.length} data nilai berhasil diproses.`;
+}
+
+
+/**
+ * FUNGSI UTILITAS: Jalankan manual dari editor untuk membuat token.
+ * Fungsi ini hanya perlu dijalankan sekali untuk mengisi kolom token yang kosong.
+ */
+function generateTokensForAllGurus() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const guruSheet = ss.getSheetByName('db_guru');
+  const range = guruSheet.getDataRange();
+  const values = range.getValues();
+
+  // Asumsikan kolom token adalah kolom ke-6 (indeks 5)
+  for (let i = 1; i < values.length; i++) {
+    if (!values[i][5]) { // Hanya proses jika token masih kosong
+      const email = values[i][0];
+      const randomString = Math.random().toString(36).substring(2, 10);
+      const token = `tok_${email.split('@')[0]}_${randomString}`;
+      guruSheet.getRange(i + 1, 6).setValue(token);
+    }
+  }
+  SpreadsheetApp.getUi().alert('Proses pembuatan token selesai!');
+}
