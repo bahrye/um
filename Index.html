@@ -15,16 +15,24 @@
       justify-content: center; 
     }
     /* Sembunyikan semua view utama secara default */
-    #input-nilai-view, #login-view, #dashboard-view, #loading-view { 
+    #input-nilai-view, #login-view, #dashboard-view, #loading-view, 
+    #cetak-nilai-view, #pengaturan-cetak-view { 
       display: none; 
     }
     .nilai-input { 
       width: 80px; 
       text-align: center; 
     }
-    /* Gaya untuk input nilai yang tidak valid */
     .nilai-input.is-invalid {
         border-color: #dc3545;
+    }
+    .clickable-card {
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+    .clickable-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
   </style>
 </head>
@@ -61,49 +69,71 @@
   </div>
 
   <div id="dashboard-view" class="container mt-4 mb-4">
-     <div class="d-flex justify-content-between align-items-center">
+    <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 id="welcome-message-dash">Selamat Datang!</h4>
         <button class="btn btn-sm btn-outline-danger" onclick="logout()">Logout</button>
     </div>
-    <hr>
-    <div class="card col-md-8 mx-auto">
+    <div class="card mb-4">
+        <div class="card-header">
+            Pengumuman
+        </div>
         <div class="card-body">
-            <h5 class="card-title">Pilih Tahun Ajaran</h5>
-            <p class="card-text">Silakan pilih tahun ajaran untuk memulai menginput atau mengedit nilai.</p>
-            <div class="form-group">
-                <label for="tahun-ajaran-select">Tahun Ajaran</label>
-                <select id="tahun-ajaran-select" class="form-control">
-                  <option>Memuat...</option>
-                </select>
+            <p class="card-text">Selamat datang di aplikasi Ujian Madrasah. Silakan pilih salah satu menu di bawah ini untuk memulai. Pastikan data yang Anda masukkan sudah benar sebelum disimpan.</p>
+        </div>
+    </div>
+    <div class="row text-center">
+        <div class="col-md-4 mb-3">
+            <div class="card clickable-card h-100" onclick="goToInputNilai()">
+                <div class="card-body">
+                    <h5 class="card-title">Input Nilai UM</h5>
+                    <p class="card-text text-muted">Masuk untuk mengisi atau mengubah nilai siswa berdasarkan tahun ajaran.</p>
+                </div>
             </div>
-            <button class="btn btn-primary" onclick="goToInputNilai()">Lanjutkan ke Input Nilai</button>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card clickable-card h-100" onclick="goToCetakNilai()">
+                <div class="card-body">
+                    <h5 class="card-title">Cetak Nilai UM</h5>
+                    <p class="card-text text-muted">Pilih tahun ajaran dan mapel untuk mencetak laporan nilai akhir.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card clickable-card h-100" onclick="goToPengaturanCetak()">
+                <div class="card-body">
+                    <h5 class="card-title">Pengaturan Cetak</h5>
+                    <p class="card-text text-muted">Atur informasi tempat dan tanggal untuk tanda tangan pada laporan.</p>
+                </div>
+            </div>
         </div>
     </div>
   </div>
 
   <div id="input-nilai-view" class="container mt-4 mb-4">
-    <div class="d-flex justify-content-between align-items-center flex-wrap">
-        <div>
-            <h4 id="welcome-message-input">Halo Guru!</h4>
-            <p class="text-muted mb-0" id="tahun-ajaran-info">Tahun Ajaran: </p>
-        </div>
-        <div class="mt-2 mt-md-0">
-            <button class="btn btn-sm btn-secondary mr-2" onclick="backToDashboard()">Kembali ke Dasbor</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="logout()">Logout</button>
-        </div>
+    <div class="d-flex justify-content-between align-items-center">
+        <h4>Input Nilai Ujian Madrasah</h4>
+        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
     </div>
     <hr>
     <div class="card">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 form-group">
+                    <label for="tahun-ajaran-select-input">Tahun Ajaran</label>
+                    <select id="tahun-ajaran-select-input" class="form-control" onchange="loadMapelForInput()"></select>
+                </div>
+                <div class="col-md-6 form-group">
+                    <label for="mapel-select-input">Mata Pelajaran</label>
+                    <select id="mapel-select-input" class="form-control" onchange="updateTampilkanSiswaButtonState()"></select>
+                </div>
+            </div>
+            <button id="tampilkan-siswa-btn" class="btn btn-primary" onclick="loadNilaiTable()" disabled>Tampilkan Siswa</button>
+        </div>
+    </div>
+    <div class="card mt-4" id="table-card-container" style="display: none;">
       <div class="card-header">Form Input Nilai</div>
       <div class="card-body">
-        <div class="form-group row">
-          <label for="mapel-select" class="col-sm-3 col-form-label">Pilih Mata Pelajaran:</label>
-          <div class="col-sm-9">
-            <select id="mapel-select" class="form-control" onchange="loadNilaiTable()"></select>
-          </div>
-        </div>
-        
-        <div id="table-container" class="mt-4" style="display: none;">
+        <div id="table-container" class="mt-2">
           <div class="table-responsive">
             <table class="table table-bordered table-striped">
               <thead class="thead-dark">
@@ -119,31 +149,135 @@
           <button id="submit-button" class="btn btn-success mt-3" onclick="submitSemuaNilai()">Simpan Semua Nilai</button>
           <div id="status" class="mt-3"></div>
         </div>
-
-        <div id="loading-spinner-table" class="text-center mt-4" style="display: none;">
-            <div class="spinner-border" role="status"><span class="sr-only">Loading...</span></div>
-            <p>Memuat data siswa...</p>
-        </div>
       </div>
+    </div>
+    <div id="loading-spinner-table" class="text-center mt-4" style="display: none;">
+        <div class="spinner-border" role="status"><span class="sr-only">Loading...</span></div>
+        <p>Memuat data siswa...</p>
+    </div>
+  </div>
+
+  <div id="cetak-nilai-view" class="container mt-4 mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <h4>Cetak Nilai Ujian Madrasah</h4>
+        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
+    </div>
+    <hr>
+    <div class="card">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 form-group">
+                    <label for="tahun-ajaran-select-cetak">Tahun Ajaran</label>
+                    <select id="tahun-ajaran-select-cetak" class="form-control" onchange="loadMapelForCetak()"></select>
+                </div>
+                <div class="col-md-6 form-group">
+                    <label for="mapel-select-cetak">Mata Pelajaran</label>
+                    <select id="mapel-select-cetak" class="form-control" onchange="updatePreviewButtonState()"></select>
+                </div>
+            </div>
+            <button id="tampilkan-preview-btn" class="btn btn-info" onclick="previewCetakNilai()" disabled>Tampilkan Preview</button>
+            <hr>
+            <div id="preview-container" class="mt-3" style="display:none;">
+                <div class="text-center mb-4">
+                    <h5>NILAI UJIAN MADRASAH TAHUN <span id="preview-tahun"></span></h5>
+                    <h6>TAHUN PELAJARAN <span id="preview-ta-deskripsi"></span></h6>
+                </div>
+                <table class="table table-sm">
+                  <tr><td style="width:150px;"><b>Nama Mata Pelajaran</b></td><td id="preview-mapel"></td></tr>
+                  <tr><td><b>Guru Pemeriksa</b></td><td id="preview-guru"></td></tr>
+                </table>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <thead class="thead-dark">
+                            <tr><th>No</th><th>Nomor Ujian</th><th>Nama Peserta Ujian</th><th>Nilai</th><th>Nilai dengan Huruf</th></tr>
+                        </thead>
+                        <tbody id="preview-table-body"></tbody>
+                    </table>
+                </div>
+                <div class="row mt-5">
+                    <div class="col-6">
+                        Mengetahui,<br>Kepala Madrasah,
+                        <br><br><br><br>
+                        <b id="preview-kepsek"></b><br>
+                        NIP. <span id="preview-nip"></span>
+                    </div>
+                    <div class="col-6 text-right">
+                        <span id="preview-tempat-ttd"></span>, <span id="preview-tanggal-ttd"></span><br>
+                        Guru Pemeriksa,
+                        <br><br><br><br>
+                        <b id="preview-guru-ttd"></b><br>
+                        NIP. -
+                    </div>
+                </div>
+                <hr>
+                <button id="unduh-pdf-btn" class="btn btn-success" onclick="unduhPdf()">Unduh PDF</button>
+                <div id="pdf-status" class="mt-2"></div>
+            </div>
+            <div id="loading-spinner-cetak" class="text-center mt-4" style="display: none;">
+                <div class="spinner-border" role="status"><span class="sr-only">Loading...</span></div>
+                <p>Memuat data preview...</p>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <div id="pengaturan-cetak-view" class="container mt-4 mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <h4>Pengaturan Dokumen Cetak</h4>
+        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
+    </div>
+    <hr>
+    <div class="card col-md-8 mx-auto">
+        <div class="card-body">
+            <div id="loading-pengaturan" class="text-center mb-3">
+                <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+                <span class="ml-2">Memuat pengaturan...</span>
+            </div>
+            <div id="form-pengaturan" style="display:none;">
+                <p class="text-muted">Pengaturan ini akan digunakan pada bagian tanda tangan di dokumen PDF yang akan diunduh.</p>
+                <div class="form-group">
+                    <label for="tempat-ttd">Tempat Tanda Tangan</label>
+                    <input type="text" id="tempat-ttd" class="form-control" placeholder="Contoh: Butung" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="tanggal-ttd">Tanggal Tanda Tangan</label>
+                    <input type="date" id="tanggal-ttd" class="form-control" disabled>
+                </div>
+                <button id="simpan-pengaturan-btn" class="btn btn-primary" onclick="simpanPengaturanCetak()" disabled>Simpan Pengaturan</button>
+                <div id="pengaturan-status" class="mt-3"></div>
+            </div>
+        </div>
     </div>
   </div>
 
 <script>
-    // --- VARIABEL GLOBAL ---
+    // --- GLOBAL VARIABLES ---
     let loggedInUser = null;
-    let selectedTahunAjaran = null;
     let currentMapelRequestID = 0;
     let cachedTahunAjaran = null;
-    // PERUBAHAN: Variabel untuk cache data mapel
     let cachedMapel = null;
 
-    // --- MANAJEMEN SESI & OTENTIKASI ---
+    // --- SESSION & AUTHENTICATION ---
     document.addEventListener("DOMContentLoaded", checkSession);
 
     function checkSession() {
         const token = localStorage.getItem('authToken');
         if (token) {
-            google.script.run.withSuccessHandler(onTokenVerified).withFailureHandler(forceLogout).verifyToken(token);
+            const localUser = localStorage.getItem('loggedInUser');
+            const localMapel = localStorage.getItem('cachedMapel');
+            const localTA = localStorage.getItem('cachedTahunAjaran');
+            
+            if (localUser && localMapel && localTA) {
+                loggedInUser = JSON.parse(localUser);
+                cachedMapel = JSON.parse(localMapel);
+                cachedTahunAjaran = JSON.parse(localTA);
+                google.script.run.withSuccessHandler(onTokenVerified).verifyToken(token);
+                showDashboard();
+            } else {
+                google.script.run.withSuccessHandler(onTokenVerified).withFailureHandler(forceLogout).verifyToken(token);
+            }
         } else {
             showView('login-view', 'flex');
         }
@@ -152,10 +286,8 @@
     function onTokenVerified(user) {
         if (user) {
             loggedInUser = user;
-            // Ambil semua data awal yang diperlukan
-            google.script.run.withSuccessHandler(onTahunAjaranLoaded).getTahunAjaran();
-            google.script.run.withSuccessHandler(onAllMapelLoaded).getAllMapelForGuru(user.email);
-            showDashboard();
+            localStorage.setItem('loggedInUser', JSON.stringify(user));
+            loadInitialData(false); // Fetch fresh data in background
         } else {
             forceLogout();
         }
@@ -163,11 +295,9 @@
 
     function handleLogin() {
         const credentials = { email: document.getElementById('email').value, password: document.getElementById('password').value };
-        const button = document.getElementById('login-button');
-        button.disabled = true;
-        button.innerText = 'Memverifikasi...';
+        document.getElementById('login-button').disabled = true;
+        document.getElementById('login-button').innerText = 'Memverifikasi...';
         document.getElementById('login-alert').style.display = 'none';
-
         google.script.run.withSuccessHandler(onLoginSuccess).withFailureHandler(onLoginFailure).userLogin(credentials);
     }
 
@@ -175,10 +305,8 @@
         if (user && user.token) {
             localStorage.setItem('authToken', user.token);
             loggedInUser = user;
-            // Ambil semua data awal yang diperlukan
-            google.script.run.withSuccessHandler(onTahunAjaranLoaded).getTahunAjaran();
-            google.script.run.withSuccessHandler(onAllMapelLoaded).getAllMapelForGuru(user.email);
-            showDashboard();
+            localStorage.setItem('loggedInUser', JSON.stringify(user));
+            loadInitialData(true);
         } else {
             onLoginFailure("Email atau password salah.");
         }
@@ -192,140 +320,133 @@
         button.disabled = false;
         button.innerText = 'Login';
     }
+    
+    function loadInitialData(showDashOnComplete) {
+        let loadCount = 2;
+        
+        const checkDone = () => {
+            loadCount--;
+            if (loadCount === 0) {
+                localStorage.setItem('cachedMapel', JSON.stringify(cachedMapel));
+                localStorage.setItem('cachedTahunAjaran', JSON.stringify(cachedTahunAjaran));
+                if (showDashOnComplete) {
+                    showDashboard();
+                }
+            }
+        };
 
+        google.script.run.withSuccessHandler(data => {
+            cachedMapel = data;
+            checkDone();
+        }).getAllMapelForGuru(loggedInUser.email);
 
-    // --- NAVIGASI & TAMPILAN (UI) ---
+        google.script.run.withSuccessHandler(data => {
+            cachedTahunAjaran = data;
+            checkDone();
+        }).getTahunAjaran();
+    }
 
+    // --- UI & NAVIGATION ---
     function showView(viewId, displayType = 'block') {
-        ['loading-view', 'login-view', 'dashboard-view', 'input-nilai-view'].forEach(id => {
+        ['loading-view', 'login-view', 'dashboard-view', 'input-nilai-view', 'cetak-nilai-view', 'pengaturan-cetak-view'].forEach(id => {
             document.getElementById(id).style.display = 'none';
         });
         document.getElementById(viewId).style.display = displayType;
+    }
+    
+    function backToDashboard() {
+        showView('dashboard-view');
     }
 
     function showDashboard() {
         showView('dashboard-view');
         document.getElementById('welcome-message-dash').innerText = `Halo, ${loggedInUser.nama}`;
-        if (cachedTahunAjaran) {
-            populateTahunAjaran(cachedTahunAjaran);
-        }
     }
     
-    function populateTahunAjaran(data) {
-        const select = document.getElementById('tahun-ajaran-select');
+    function populateTahunAjaran(data, selectId) {
+        const select = document.getElementById(selectId);
         select.innerHTML = '<option value="" selected disabled>-- Pilih --</option>';
-        data.forEach(item => {
-            select.add(new Option(item.deskripsi, item.id_tahun_ajaran));
-        });
-    }
-
-    function onTahunAjaranLoaded(data) {
-        cachedTahunAjaran = data;
-        if (document.getElementById('dashboard-view').style.display !== 'none') {
-            populateTahunAjaran(data);
+        if (data && data.length > 0) {
+            data.forEach(item => {
+                select.add(new Option(item.deskripsi, item.id_tahun_ajaran));
+            });
+        } else {
+            select.innerHTML = '<option value="" selected disabled>Tidak ditemukan</option>';
         }
     }
 
-    // PERUBAHAN: Fungsi baru untuk menyimpan cache mapel
-    function onAllMapelLoaded(data) {
-        cachedMapel = data;
-    }
-
+    // --- FLOW: INPUT NILAI ---
     function goToInputNilai() {
-        const taSelect = document.getElementById('tahun-ajaran-select');
-        if (!taSelect.value) {
-            alert('Silakan pilih tahun ajaran terlebih dahulu.');
-            return;
-        }
-        selectedTahunAjaran = {
-            id: taSelect.value,
-            deskripsi: taSelect.options[taSelect.selectedIndex].text
-        };
         showView('input-nilai-view');
-        document.getElementById('welcome-message-input').innerText = `Halo, ${loggedInUser.nama}`;
-        document.getElementById('tahun-ajaran-info').innerText = `Tahun Ajaran: ${selectedTahunAjaran.deskripsi}`;
-        
-        // PERUBAHAN: Ambil data mapel langsung dari cache, tidak perlu panggil server.
-        const mapelList = cachedMapel[selectedTahunAjaran.id] || [];
-        onMapelLoaded(mapelList); // Langsung panggil fungsi untuk mengisi dropdown
-
-        document.getElementById('table-container').style.display = 'none';
-        document.getElementById('status').innerHTML = '';
+        const taSelect = document.getElementById('tahun-ajaran-select-input');
+        taSelect.innerHTML = '<option>Memuat...</option>';
+        populateTahunAjaran(cachedTahunAjaran, 'tahun-ajaran-select-input');
+        loadMapelForInput();
+        document.getElementById('table-card-container').style.display = 'none';
+        document.getElementById('loading-spinner-table').style.display = 'none';
     }
 
-    function onMapelLoaded(mapelList) {
-        const mapelSelect = document.getElementById('mapel-select');
+    function loadMapelForInput() {
+        const taId = document.getElementById('tahun-ajaran-select-input').value;
+        const mapelSelect = document.getElementById('mapel-select-input');
         mapelSelect.innerHTML = '';
-        mapelSelect.disabled = false;
-
-        if (mapelList && mapelList.length > 0) {
+        const mapelList = taId && cachedMapel[taId] ? cachedMapel[taId] : [];
+        
+        if (mapelList.length > 0) {
             mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
             mapelList.forEach(m => mapelSelect.add(new Option(m, m)));
         } else {
-            mapelSelect.innerHTML = '<option value="" selected disabled>Mapel tidak ditemukan</option>';
+            mapelSelect.innerHTML = '<option value="" selected disabled>Pilih Tahun Ajaran</option>';
         }
+        document.getElementById('table-card-container').style.display = 'none';
+        updateTampilkanSiswaButtonState();
     }
 
-
-    function backToDashboard() {
-        showDashboard();
+    function updateTampilkanSiswaButtonState() {
+        const taId = document.getElementById('tahun-ajaran-select-input').value;
+        const mapel = document.getElementById('mapel-select-input').value;
+        document.getElementById('tampilkan-siswa-btn').disabled = !(taId && mapel);
     }
 
-
-    // --- LOGIKA INPUT & MANAJEMEN NILAI ---
-    
     function loadNilaiTable() {
-        const mapel = document.getElementById('mapel-select').value;
-        if (!mapel) return;
+        const idTahunAjaran = document.getElementById('tahun-ajaran-select-input').value;
+        const mapel = document.getElementById('mapel-select-input').value;
+        if (!idTahunAjaran || !mapel) return;
 
         currentMapelRequestID++;
         const thisRequestID = currentMapelRequestID;
-
-        document.getElementById('table-container').style.display = 'none';
+        document.getElementById('table-card-container').style.display = 'none';
         document.getElementById('loading-spinner-table').style.display = 'block';
         document.getElementById('status').innerHTML = '';
 
         google.script.run
             .withSuccessHandler(onDataLoaded)
-            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, selectedTahunAjaran.id, thisRequestID);
+            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, idTahunAjaran, thisRequestID);
     }
 
     function onDataLoaded(response) {
-        if (response.requestID !== currentMapelRequestID) {
-            console.log(`Mengabaikan data usang. ID Data: ${response.requestID}, ID Seharusnya: ${currentMapelRequestID}`);
-            return; 
-        }
+        if (response.requestID !== currentMapelRequestID) return;
 
         const tableBody = document.getElementById('nilai-table-body');
         tableBody.innerHTML = ''; 
-        
         const data = response.siswaData; 
 
         if (data && data.length > 0) {
             data.forEach((item, index) => {
-                const row = `
-                    <tr>
-                        <td>${index + 1}</td>
-                        <td>${item.nama}</td>
-                        <td>
-                            <input type="number" class="form-control nilai-input" value="${item.nilai}" min="0" max="100" inputmode="numeric" 
-                                   oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" 
-                                   data-nomor-ujian="${item.nomor_ujian}" data-original-nilai="${item.nilai}">
-                        </td>
-                    </tr>`;
+                const row = `<tr><td>${index + 1}</td><td>${item.nama}</td><td><input type="number" class="form-control nilai-input" value="${item.nilai || ''}" min="0" max="100" inputmode="numeric" oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" data-nomor-ujian="${item.nomor_ujian}" data-original-nilai="${item.nilai || ''}"></td></tr>`;
                 tableBody.innerHTML += row;
             });
         } else {
             tableBody.innerHTML = '<tr><td colspan="3" class="text-center">Data siswa tidak ditemukan.</td></tr>';
         }
         document.getElementById('loading-spinner-table').style.display = 'none';
-        document.getElementById('table-container').style.display = 'block';
+        document.getElementById('table-card-container').style.display = 'block';
     }
     
     function submitSemuaNilai() {
         const button = document.getElementById('submit-button');
         const statusDiv = document.getElementById('status');
-        const inputs = document.querySelectorAll('.nilai-input');
+        const inputs = document.querySelectorAll('#nilai-table-body .nilai-input');
         const dataToSave = [];
         let hasError = false;
 
@@ -348,7 +469,6 @@
             statusDiv.innerHTML = `<div class="alert alert-danger">Terdapat nilai yang tidak valid (0-100).</div>`;
             return;
         }
-
         if (dataToSave.length === 0) {
             statusDiv.innerHTML = `<div class="alert alert-info">Tidak ada perubahan data untuk disimpan.</div>`;
             return;
@@ -356,17 +476,14 @@
         
         const dataLengkap = dataToSave.map(item => ({
           ...item,
-          mapel: document.getElementById('mapel-select').value,
+          mapel: document.getElementById('mapel-select-input').value,
           emailGuru: loggedInUser.email,
-          id_tahun_ajaran: selectedTahunAjaran.id
+          id_tahun_ajaran: document.getElementById('tahun-ajaran-select-input').value
         }));
 
         button.disabled = true;
         statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan ${dataLengkap.length} data perubahan...</div>`;
-        
-        google.script.run
-            .withSuccessHandler(onSaveSuccess)
-            .simpanAtauUpdateNilai(dataLengkap);
+        google.script.run.withSuccessHandler(onSaveSuccess).simpanAtauUpdateNilai(dataLengkap);
     }
     
     function onSaveSuccess(response) {
@@ -374,7 +491,7 @@
         const statusDiv = document.getElementById('status');
         if (response.startsWith("Sukses")) {
             statusDiv.innerHTML = `<div class="alert alert-success">${response}</div>`;
-            document.querySelectorAll('.nilai-input').forEach(input => {
+            document.querySelectorAll('#nilai-table-body .nilai-input').forEach(input => {
                 input.setAttribute('data-original-nilai', input.value);
             });
         } else {
@@ -382,23 +499,156 @@
         }
         button.disabled = false;
     }
-
-
-    // --- FUNGSI UTILITAS ---
     
+    // --- FLOW: CETAK NILAI ---
+    function goToCetakNilai() {
+        showView('cetak-nilai-view');
+        const taSelect = document.getElementById('tahun-ajaran-select-cetak');
+        taSelect.innerHTML = '<option>Memuat...</option>';
+        populateTahunAjaran(cachedTahunAjaran, 'tahun-ajaran-select-cetak');
+        loadMapelForCetak();
+        document.getElementById('preview-container').style.display = 'none';
+        document.getElementById('loading-spinner-cetak').style.display = 'none';
+    }
+
+    function loadMapelForCetak() {
+        const taId = document.getElementById('tahun-ajaran-select-cetak').value;
+        const mapelSelect = document.getElementById('mapel-select-cetak');
+        mapelSelect.innerHTML = '';
+        const mapelList = taId && cachedMapel[taId] ? cachedMapel[taId] : [];
+        
+        if (mapelList.length > 0) {
+            mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
+            mapelList.forEach(m => mapelSelect.add(new Option(m, m)));
+        } else {
+            mapelSelect.innerHTML = '<option value="" selected disabled>Pilih Tahun Ajaran</option>';
+        }
+        updatePreviewButtonState();
+    }
+
+    function updatePreviewButtonState() {
+        const taId = document.getElementById('tahun-ajaran-select-cetak').value;
+        const mapel = document.getElementById('mapel-select-cetak').value;
+        document.getElementById('tampilkan-preview-btn').disabled = !(taId && mapel);
+    }
+
+    function previewCetakNilai() {
+        const taSelect = document.getElementById('tahun-ajaran-select-cetak');
+        const mapelSelect = document.getElementById('mapel-select-cetak');
+        if (!taSelect.value || !mapelSelect.value) return;
+
+        document.getElementById('preview-container').style.display = 'none';
+        document.getElementById('loading-spinner-cetak').style.display = 'block';
+
+        const data = {
+            id_sekolah: loggedInUser.id_sekolah,
+            id_tahun_ajaran: taSelect.value,
+            deskripsi_ta: taSelect.options[taSelect.selectedIndex].text,
+            nama_mapel: mapelSelect.value,
+            email_guru: loggedInUser.email,
+        };
+        google.script.run.withSuccessHandler(onPreviewDataLoaded).getCetakData(data);
+    }
+
+    function onPreviewDataLoaded(data) {
+        document.getElementById('loading-spinner-cetak').style.display = 'none';
+        if (data.error) {
+            alert('Gagal memuat data: ' + data.error);
+            return;
+        }
+        document.getElementById('preview-container').style.display = 'block';
+        document.getElementById('preview-tahun').innerText = new Date().getFullYear();
+        document.getElementById('preview-ta-deskripsi').innerText = data.deskripsi_ta;
+        document.getElementById('preview-mapel').innerText = `: ${data.nama_mapel}`;
+        document.getElementById('preview-guru').innerText = `: ${data.guru.nama}`;
+        const tableBody = document.getElementById('preview-table-body');
+        tableBody.innerHTML = '';
+        if (data.nilai_siswa.length > 0) {
+            data.nilai_siswa.forEach((item, index) => {
+                const row = `<tr><td>${index + 1}</td><td>${item.nomor_ujian}</td><td>${item.nama}</td><td>${item.nilai}</td><td>${item.nilai_huruf}</td></tr>`;
+                tableBody.innerHTML += row;
+            });
+        } else {
+            tableBody.innerHTML = '<tr><td colspan="5" class="text-center">Data nilai tidak ditemukan.</td></tr>';
+        }
+        document.getElementById('preview-kepsek').innerText = data.sekolah.kepala_sekolah;
+        document.getElementById('preview-nip').innerText = data.sekolah.nip_kepsek || '-';
+        document.getElementById('preview-guru-ttd').innerText = data.guru.nama;
+        document.getElementById('preview-tempat-ttd').innerText = data.pengaturan.tempat || '______';
+        document.getElementById('preview-tanggal-ttd').innerText = data.pengaturan.tanggalFormatted || '______';
+    }
+
+    function unduhPdf() {
+        alert("Fungsi 'Unduh PDF' sedang dalam pengembangan.");
+    }
+
+    // --- FLOW: PENGATURAN CETAK ---
+    function goToPengaturanCetak() {
+        showView('pengaturan-cetak-view');
+        document.getElementById('pengaturan-status').innerHTML = '';
+        document.getElementById('loading-pengaturan').style.display = 'block';
+        document.getElementById('form-pengaturan').style.display = 'none';
+        document.getElementById('tempat-ttd').disabled = true;
+        document.getElementById('tanggal-ttd').disabled = true;
+        document.getElementById('simpan-pengaturan-btn').disabled = true;
+        google.script.run.withSuccessHandler(onPengaturanLoaded).getPengaturanCetak(loggedInUser.email);
+    }
+
+    function onPengaturanLoaded(pengaturan) {
+        document.getElementById('loading-pengaturan').style.display = 'none';
+        document.getElementById('form-pengaturan').style.display = 'block';
+        document.getElementById('tempat-ttd').value = pengaturan.tempat || '';
+        document.getElementById('tanggal-ttd').value = pengaturan.tanggal || '';
+        document.getElementById('tempat-ttd').disabled = false;
+        document.getElementById('tanggal-ttd').disabled = false;
+        document.getElementById('simpan-pengaturan-btn').disabled = false;
+    }
+
+    function simpanPengaturanCetak() {
+        const tempat = document.getElementById('tempat-ttd').value;
+        const tanggal = document.getElementById('tanggal-ttd').value;
+        const statusDiv = document.getElementById('pengaturan-status');
+        const button = document.getElementById('simpan-pengaturan-btn');
+        statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan...</div>`;
+        button.disabled = true;
+        const pengaturan = { 
+            email: loggedInUser.email,
+            tempat: tempat, 
+            tanggal: tanggal 
+        };
+        google.script.run.withSuccessHandler(onPengaturanSaved).withFailureHandler(onPengaturanSaveFailed).savePengaturanCetak(pengaturan);
+    }
+
+    function onPengaturanSaved(response) {
+        const statusDiv = document.getElementById('pengaturan-status');
+        document.getElementById('simpan-pengaturan-btn').disabled = false;
+        if(response.success) {
+            statusDiv.innerHTML = `<div class="alert alert-success">Pengaturan berhasil disimpan.</div>`;
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger">Gagal menyimpan: ${response.error}</div>`;
+        }
+    }
+    
+    function onPengaturanSaveFailed(error) {
+        document.getElementById('simpan-pengaturan-btn').disabled = false;
+        const statusDiv = document.getElementById('pengaturan-status');
+        statusDiv.innerHTML = `<div class="alert alert-danger">Terjadi kesalahan: ${error.toString()}</div>`;
+    }
+    
+    // --- UTILITY FUNCTIONS ---
     function logout() {
         localStorage.removeItem('authToken');
+        localStorage.removeItem('cachedMapel');
+        localStorage.removeItem('cachedTahunAjaran');
+        localStorage.removeItem('loggedInUser');
         forceLogout();
     }
 
     function forceLogout() {
         loggedInUser = null;
-        selectedTahunAjaran = null;
         cachedTahunAjaran = null;
-        // PERUBAHAN: Hapus cache mapel saat logout
         cachedMapel = null; 
         showView('login-view', 'flex');
-        
         document.getElementById('email').value = '';
         document.getElementById('password').value = '';
         const loginButton = document.getElementById('login-button');
