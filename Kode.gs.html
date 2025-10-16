@@ -13,6 +13,7 @@ const ENROLLMENT_SHEET = SS.getSheetByName('db_enrollment');
 const MAPEL_SHEET = SS.getSheetByName('db_mapel');
 const SEKOLAH_SHEET = SS.getSheetByName('db_sekolah');
 const PENGATURAN_CETAK_SHEET = SS.getSheetByName('db_pengaturan_cetak');
+const STATUS_KIRIM_SHEET = SS.getSheetByName('db_status_kirim');
 
 /**
  * Menampilkan antarmuka pengguna (UI) aplikasi web.
@@ -24,15 +25,8 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 }
 
-/**
- * Memverifikasi kredensial login (email & password) guru.
- * @param {object} credentials Objek yang berisi {email, password}.
- * @returns {object|null} Objek data guru jika login berhasil, atau null jika gagal.
- */
 function userLogin(credentials) {
-  if (!credentials || !credentials.email || !credentials.password) {
-    return null;
-  }
+  if (!credentials || !credentials.email || !credentials.password) return null;
   const dataGuru = GURU_SHEET.getDataRange().getValues();
   for (let i = 1; i < dataGuru.length; i++) {
     const row = dataGuru[i];
@@ -43,16 +37,10 @@ function userLogin(credentials) {
   return null;
 }
 
-/**
- * Memverifikasi token sesi yang tersimpan di browser pengguna.
- * @param {string} token Token sesi dari client-side.
- * @returns {object|null} Data guru jika token valid, atau null jika tidak.
- */
 function verifyToken(token) {
   if (!token) return null;
   const dataGuru = GURU_SHEET.getDataRange().getValues();
   for (let i = 1; i < dataGuru.length; i++) {
-    const row = dataGuru[i];
     if (row[5] === token) {
       return { email: row[0], nama: row[2], id_sekolah: row[3], token: row[5] };
     }
@@ -60,169 +48,228 @@ function verifyToken(token) {
   return null;
 }
 
-/**
- * Mengambil SEMUA mapel yang diajar oleh guru, dikelompokkan berdasarkan tahun ajaran.
- * @param {string} email Email guru.
- * @returns {object} Objek dengan key id_tahun_ajaran dan value array nama_mapel.
- */
 function getAllMapelForGuru(email) {
-  if (!email) {
-    return {};
-  }
+  if (!email) return {};
   const mapelData = MAPEL_SHEET.getDataRange().getValues().slice(1);
-  const result = mapelData
+  return mapelData
     .filter(row => row[0].toLowerCase() === email.toLowerCase())
     .reduce((acc, row) => {
       const namaMapel = row[1];
       const idTahunAjaran = row[2];
-      if (!acc[idTahunAjaran]) {
-        acc[idTahunAjaran] = [];
-      }
-      if (!acc[idTahunAjaran].includes(namaMapel)) {
-        acc[idTahunAjaran].push(namaMapel);
-      }
+      if (!acc[idTahunAjaran]) acc[idTahunAjaran] = [];
+      if (!acc[idTahunAjaran].includes(namaMapel)) acc[idTahunAjaran].push(namaMapel);
       return acc;
     }, {});
-  return result;
 }
 
-
-/**
- * Mengambil daftar semua tahun ajaran dari spreadsheet.
- * @returns {Array<object>} Array objek {id_tahun_ajaran, deskripsi}.
- */
 function getTahunAjaran() {
   const data = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1);
-  return data.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] }));
+  const mappedData = data.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] }));
+  return mappedData.reverse(); 
 }
 
-/**
- * Mengambil daftar siswa dan nilai untuk ditampilkan di tabel input.
- * @param {string|number} id_sekolah ID unik sekolah.
- * @param {string} nama_mapel Nama mata pelajaran.
- * @param {string|number} id_tahun_ajaran ID unik tahun ajaran.
- * @param {number} requestID ID unik untuk permintaan data dari frontend.
- * @returns {object} Objek berisi {siswaData, requestID}.
- */
 function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID) {
   const enrollmentData = ENROLLMENT_SHEET.getDataRange().getValues().slice(1);
-  const enrolledSiswaIds = enrollmentData
+  const enrolledSiswa = enrollmentData
     .filter(row => String(row[2]).trim() == String(id_sekolah).trim() && String(row[3]).trim() == String(id_tahun_ajaran).trim())
-    .map(row => row[1]);
-
-  if (enrolledSiswaIds.length === 0) {
-    return { siswaData: [], requestID: requestID };
-  }
-
+    .map(row => ({ nomor_ujian: row[1], ruang_ujian: row[4] || 'N/A' }));
+  if (enrolledSiswa.length === 0) return { siswaData: [], requestID: requestID };
   const masterSiswaMap = SISWA_SHEET.getDataRange().getValues().slice(1)
-    .reduce((map, row) => {
-      map[row[0]] = row[1];
-      return map;
-    }, {});
-
+    .reduce((map, row) => { map[row[0]] = row[1]; return map; }, {});
   const nilaiMap = NILAI_SHEET.getDataRange().getValues().slice(1)
     .filter(row => row[2] == nama_mapel && row[6] == id_tahun_ajaran)
-    .reduce((map, row) => {
-      map[row[1]] = row[3];
-      return map;
-    }, {});
-
-  const result = enrolledSiswaIds.map(nomor_ujian => ({
-    nomor_ujian: nomor_ujian,
-    nama: masterSiswaMap[nomor_ujian] || 'Nama Tidak Ditemukan',
-    nilai: nilaiMap[nomor_ujian] || ''
+    .reduce((map, row) => { map[row[1]] = row[3]; return map; }, {});
+  const result = enrolledSiswa.map(item => ({
+    nomor_ujian: item.nomor_ujian,
+    ruang_ujian: item.ruang_ujian,
+    nama: masterSiswaMap[item.nomor_ujian] || 'Nama Tdk Ditemukan',
+    nilai: nilaiMap[item.nomor_ujian] || ''
   })).sort((a, b) => a.nama.localeCompare(b.nama));
-
   return { siswaData: result, requestID: requestID };
 }
 
-
-/**
- * Menyimpan atau memperbarui data nilai.
- * @param {Array<object>} dataNilai Array objek nilai.
- * @returns {string} Pesan status operasi.
- */
 function simpanAtauUpdateNilai(dataNilai) {
-  if (!dataNilai || dataNilai.length === 0) {
-    return "Error: Tidak ada data untuk diproses.";
-  }
+  if (!dataNilai || dataNilai.length === 0) return "Error: Tidak ada data untuk diproses.";
   const allNilai = NILAI_SHEET.getDataRange().getValues();
   const { mapel, emailGuru, id_tahun_ajaran } = dataNilai[0];
   const existingDataMap = allNilai.reduce((map, row, index) => {
-    if (index > 0) {
-      const key = `${row[1]}_${row[2]}_${row[6]}`;
-      map[key] = index;
-    }
+    if (index > 0) { const key = `${row[1]}_${row[2]}_${row[6]}`; map[key] = index; }
     return map;
   }, {});
-  
   let updatedCount = 0, insertedCount = 0, deletedCount = 0;
-
   dataNilai.forEach(item => {
     const key = `${item.nomorUjian}_${mapel}_${id_tahun_ajaran}`;
     const rowIndex = existingDataMap[key];
     const nilaiIsFilled = item.nilai !== '' && item.nilai !== null;
-
     if (rowIndex) {
       NILAI_SHEET.getRange(rowIndex + 1, 4).setValue(item.nilai);
       NILAI_SHEET.getRange(rowIndex + 1, 6).setValue(new Date());
       nilaiIsFilled ? updatedCount++ : deletedCount++;
     } else if (nilaiIsFilled) {
-      NILAI_SHEET.appendRow([ new Date().getTime(), item.nomorUjian, mapel, item.nilai, emailGuru, new Date(), id_tahun_ajaran ]);
+      NILAI_SHEET.appendRow([new Date().getTime(), item.nomorUjian, mapel, item.nilai, emailGuru, new Date(), id_tahun_ajaran]);
       insertedCount++;
     }
   });
-
   const totalProcessed = updatedCount + insertedCount + deletedCount;
   return `Sukses! ${totalProcessed} data diproses (${insertedCount} baru, ${updatedCount} diperbarui, ${deletedCount} dikosongkan).`;
 }
 
-/**
- * Mengambil semua data yang diperlukan untuk halaman cetak.
- * @param {object} req Objek permintaan dari frontend.
- * @returns {object} Objek komprehensif untuk halaman preview.
- */
+function kirimStatusNilai(data) {
+  try {
+    const { id_tahun_ajaran, email_guru, nama_mapel } = data;
+    const key = `${id_tahun_ajaran}_${email_guru.toLowerCase()}_${nama_mapel}`;
+    const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues();
+    const existingKeys = statusData.map(row => row[0]);
+    if (!existingKeys.includes(key)) {
+      STATUS_KIRIM_SHEET.appendRow([key, id_tahun_ajaran, email_guru, nama_mapel, new Date()]);
+    }
+    return { success: true, message: "Status berhasil dikirim." };
+  } catch (e) {
+    Logger.log(e);
+    return { success: false, error: e.toString() };
+  }
+}
+
+function getDashboardStatus(id_sekolah, id_tahun_ajaran) {
+  try {
+    if (!id_tahun_ajaran) return [];
+    const guruData = GURU_SHEET.getDataRange().getValues().slice(1);
+    const guruDiSekolahMap = guruData.filter(row => row[3] == id_sekolah)
+      .reduce((map, row) => { map[row[0].toLowerCase()] = row[2]; return map; }, {});
+    const emailsGuruDiSekolah = Object.keys(guruDiSekolahMap);
+    const mapelData = MAPEL_SHEET.getDataRange().getValues().slice(1);
+    const guruMapelList = mapelData
+      .filter(row => emailsGuruDiSekolah.includes(row[0].toLowerCase()) && row[2] == id_tahun_ajaran)
+      .map(row => ({ email: row[0].toLowerCase(), nama: guruDiSekolahMap[row[0].toLowerCase()], mapel: row[1] }));
+    const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
+    const sentStatusSet = statusData
+      .filter(row => row[1] == id_tahun_ajaran)
+      .reduce((set, row) => { const key = `${row[1]}_${row[2].toLowerCase()}_${row[3]}`; set.add(key); return set; }, new Set());
+    const result = guruMapelList.map(item => {
+        const keyCek = `${id_tahun_ajaran}_${item.email}_${item.mapel}`;
+        return { nama: item.nama, mapel: item.mapel, email: item.email, status: sentStatusSet.has(keyCek) };
+    }).sort((a, b) => a.nama.localeCompare(b.nama) || a.mapel.localeCompare(b.mapel));
+    return result;
+  } catch (e) {
+    Logger.log(e);
+    return { error: e.toString() };
+  }
+}
+
 function getCetakData(req) {
   try {
     const nilaiSiswaData = getSiswaAndNilai(req.id_sekolah, req.nama_mapel, req.id_tahun_ajaran, 0).siswaData;
     const nilaiSiswa = nilaiSiswaData.map(s => ({ ...s, nilai_huruf: s.nilai ? terbilang(s.nilai) : '' }));
-
     const sekolahData = SEKOLAH_SHEET.getDataRange().getValues().slice(1);
     const sekolahInfoRow = sekolahData.find(row => row[0] == req.id_sekolah);
-    const sekolahInfo = {
-      kepala_sekolah: sekolahInfoRow ? sekolahInfoRow[3] : 'Tidak Ditemukan',
-      nip_kepsek: sekolahInfoRow ? sekolahInfoRow[4] : '-'
-    };
-
+    const sekolahInfo = { kepala_sekolah: sekolahInfoRow ? sekolahInfoRow[3] : 'Tdk Ditemukan', nip_kepsek: sekolahInfoRow ? sekolahInfoRow[4] : '-' };
     const guruData = GURU_SHEET.getDataRange().getValues().slice(1);
     const guruInfoRow = guruData.find(row => row[0].toLowerCase() === req.email_guru.toLowerCase());
-    const guruInfo = { nama: guruInfoRow ? guruInfoRow[2] : 'Guru Tidak Ditemukan' };
-
+    const guruInfo = { nama: guruInfoRow ? guruInfoRow[2] : 'Guru Tdk Ditemukan' };
     const pengaturan = getPengaturanCetak(req.email_guru);
     if (pengaturan.tanggal) {
         const d = new Date(pengaturan.tanggal);
         d.setDate(d.getDate() + 1);
         pengaturan.tanggalFormatted = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     }
-
-    return {
-      nilai_siswa: nilaiSiswa,
-      sekolah: sekolahInfo,
-      guru: guruInfo,
-      pengaturan: pengaturan,
-      deskripsi_ta: req.deskripsi_ta,
-      nama_mapel: req.nama_mapel,
-    };
+    return { nilai_siswa: nilaiSiswa, sekolah: sekolahInfo, guru: guruInfo, pengaturan: pengaturan, deskripsi_ta: req.deskripsi_ta, nama_mapel: req.nama_mapel };
   } catch (e) {
     return { error: e.toString() };
   }
 }
 
 /**
- * Menyimpan pengaturan cetak ke spreadsheet 'db_pengaturan_cetak'.
- * @param {object} pengaturan Objek {email, tempat, tanggal}.
- * @returns {object} Status sukses.
+ * ===== DIPERBARUI: Mengembalikan data Base64, bukan URL =====
+ * Membuat file PDF dari template, mengonversinya ke Base64, dan menghapusnya.
+ * @param {object} data Objek berisi detail untuk pembuatan PDF.
+ * @returns {object} Objek berisi data Base64 dan nama file, atau error.
  */
+function generatePdfAsBase64(data) {
+  // Gunakan LockService untuk mencegah konflik saat banyak pengguna mengakses bersamaan
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000); // Tunggu hingga 30 detik jika ada proses lain
+
+  let tempFileId; // Simpan ID file temporary untuk dihapus nanti
+
+  try {
+    const { id_sekolah, id_tahun_ajaran, nama_mapel, email_guru } = data;
+    
+    const taInfo = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1).find(row => row[0] == id_tahun_ajaran);
+    const deskripsi_ta = taInfo ? taInfo[1] : 'N/A';
+    const req = { id_sekolah, nama_mapel, id_tahun_ajaran, email_guru, deskripsi_ta };
+    const allData = getCetakData(req);
+
+    const sekolahData = SEKOLAH_SHEET.getDataRange().getValues();
+    const sekolahRow = sekolahData.find(row => row[0] == id_sekolah);
+    if (!sekolahRow || !sekolahRow[5]) {
+      throw new Error("ID Template Google Doc tidak ditemukan untuk sekolah ini.");
+    }
+    const templateId = sekolahRow[5];
+    const templateFile = DriveApp.getFileById(templateId);
+
+    // Buat nama file yang sangat unik untuk menghindari konflik
+    const uniqueString = Utilities.getUuid();
+    const tempFileName = `TEMP_DOC_${nama_mapel}_${uniqueString}`;
+    const newFile = templateFile.makeCopy(tempFileName, DriveApp.getRootFolder());
+    tempFileId = newFile.getId(); // Simpan ID untuk dihapus nanti
+
+    const doc = DocumentApp.openById(tempFileId);
+    const body = doc.getBody();
+
+    const tahunAjaranParts = allData.deskripsi_ta.split('/');
+    const tahunLulus = tahunAjaranParts.length > 1 ? tahunAjaranParts[1] : new Date().getFullYear();
+    body.replaceText('{{nama_mapel}}', allData.nama_mapel.toUpperCase());
+    body.replaceText('{{tahun_lulus}}', tahunLulus);
+    body.replaceText('{{tahun_pelajaran}}', allData.deskripsi_ta);
+    body.replaceText('{{guru_pemeriksa}}', allData.guru.nama);
+    body.replaceText('{{nama_kepala_sekolah}}', allData.sekolah.kepala_sekolah);
+    body.replaceText('{{nip_kepala_sekolah}}', allData.sekolah.nip_kepsek || '-');
+    body.replaceText('{{tempat_ttd}}', allData.pengaturan.tempat || '______');
+    body.replaceText('{{tanggal_ttd}}', allData.pengaturan.tanggalFormatted || '______');
+    
+    const table = body.getTables()[0];
+    if (table) {
+        let textStyle = {}; textStyle[DocumentApp.Attribute.BOLD] = false;
+        allData.nilai_siswa.forEach((item, index) => {
+          const row = table.appendTableRow();
+          let cell0 = row.appendTableCell((index + 1).toString());
+          cell0.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER).setAttributes(textStyle);
+          let cell1 = row.appendTableCell(item.ruang_ujian.toString());
+          cell1.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER).setAttributes(textStyle);
+          let cell2 = row.appendTableCell(item.nomor_ujian.toString());
+          cell2.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER).setAttributes(textStyle);
+          let cell3 = row.appendTableCell(item.nama.toString());
+          cell3.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.LEFT).setAttributes(textStyle);
+          let cell4 = row.appendTableCell(item.nilai.toString());
+          cell4.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER).setAttributes(textStyle);
+          let cell5 = row.appendTableCell(item.nilai_huruf.toString());
+          cell5.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.LEFT).setAttributes(textStyle);
+        });
+    } else {
+        throw new Error("Tidak ada tabel yang ditemukan di dalam template Google Doc.");
+    }
+    doc.saveAndClose();
+
+    // Dapatkan konten sebagai PDF Blob dan konversi ke Base64
+    const pdfBlob = newFile.getAs('application/pdf');
+    const base64Data = Utilities.base64Encode(pdfBlob.getBytes());
+    
+    const finalFileName = `Nilai_${nama_mapel}_${allData.guru.nama}_${deskripsi_ta.replace('/', '-')}.pdf`;
+
+    return { base64Data: base64Data, fileName: finalFileName };
+
+  } catch (e) {
+    Logger.log(e);
+    return { error: e.toString() };
+  } finally {
+    // Pastikan file temporary selalu dihapus, bahkan jika terjadi error
+    if (tempFileId) {
+      DriveApp.getFileById(tempFileId).setTrashed(true);
+    }
+    lock.releaseLock(); // Lepaskan kunci
+  }
+}
+
 function savePengaturanCetak(pengaturan) {
   try {
     const data = PENGATURAN_CETAK_SHEET.getDataRange().getValues();
@@ -233,25 +280,18 @@ function savePengaturanCetak(pengaturan) {
         break;
       }
     }
-    
     if (rowIndex > -1) {
       PENGATURAN_CETAK_SHEET.getRange(rowIndex, 2).setValue(pengaturan.tempat);
       PENGATURAN_CETAK_SHEET.getRange(rowIndex, 3).setValue(pengaturan.tanggal);
     } else {
       PENGATURAN_CETAK_SHEET.appendRow([pengaturan.email, pengaturan.tempat, pengaturan.tanggal]);
     }
-    
     return { success: true };
   } catch (e) {
     return { success: false, error: e.toString() };
   }
 }
 
-/**
- * Mengambil pengaturan cetak dari spreadsheet 'db_pengaturan_cetak'.
- * @param {string} email Email guru yang sedang login.
- * @returns {object} Pengaturan yang tersimpan atau objek kosong.
- */
 function getPengaturanCetak(email) {
   try {
     const data = PENGATURAN_CETAK_SHEET.getDataRange().getValues();
@@ -270,11 +310,6 @@ function getPengaturanCetak(email) {
   }
 }
 
-// --- UTILITY FUNCTIONS ---
-
-/**
- * FUNGSI UTILITAS: Membuat token unik untuk semua guru yang belum memilikinya.
- */
 function generateTokensForAllGurus() {
   const range = GURU_SHEET.getDataRange();
   const values = range.getValues();
@@ -289,12 +324,8 @@ function generateTokensForAllGurus() {
   SpreadsheetApp.getUi().alert('Proses pembuatan token selesai!');
 }
 
-/**
- * FUNGSI UTILITAS: Konversi angka menjadi teks terbilang.
- */
 function terbilang(n) {
     if (n < 0 || n > 100 || isNaN(n) || n === '') return '';
-    n = Math.floor(n);
     if (n === 100) return 'Seratus';
     if (n === 0) return 'Nol';
     const satuan = ["", "Satu", "Dua", "Tiga", "Empat", "Lima", "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"];
