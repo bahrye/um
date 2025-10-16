@@ -33,9 +33,15 @@
         transform: translateY(-5px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
+    .modal-backdrop {
+        background-color: rgba(0,0,0,0.6);
+    }
   </style>
 </head>
 <body>
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 
   <div id="loading-view" class="main-container" style="display: flex;">
     <div class="text-center">
@@ -141,7 +147,19 @@
             </div>
         </div>
     </div>
-    
+  </div>
+
+  <div class="modal fade" id="loadingModal" tabindex="-1" role="dialog" aria-labelledby="loadingModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-body text-center p-4">
+          <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+            <span class="sr-only">Loading...</span>
+          </div>
+          <p class="mt-3 mb-0">Sedang memproses unduhan PDF, mohon tunggu...</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="input-nilai-view" class="container mt-4 mb-4">
@@ -194,7 +212,7 @@
 
   <div id="cetak-nilai-view" class="container mt-4 mb-4">
     <div class="d-flex justify-content-between align-items-center">
-        <h4>Cetak Nilai Ujian Madrasah</h4>
+        <h4>Kirim & Cetak Nilai Ujian Madrasah</h4>
         <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
     </div>
     <hr>
@@ -245,7 +263,11 @@
                     </div>
                 </div>
                 <hr>
-                <button id="unduh-pdf-btn" class="btn btn-success" onclick="kirimDanUnduhPdf()">Kirim dan Unduh PDF</button>
+                <div id="pdf-action-container">
+                    <button id="kirim-btn" class="btn btn-success" onclick="kirimStatus()">Kirim Status & Siapkan PDF</button>
+                    <button id="batal-kirim-btn" class="btn btn-warning" style="display: none;" onclick="batalKirim()">Batal Kirim</button>
+                    <button id="unduh-pdf-btn" class="btn btn-primary" style="display: none;" onclick="unduhPdf()">Unduh PDF</button>
+                </div>
                 <div id="pdf-status" class="mt-2"></div>
             </div>
             <div id="loading-spinner-cetak" class="text-center mt-4" style="display: none;">
@@ -286,8 +308,22 @@
     let cachedTahunAjaran = null;
     let cachedMapel = null;
     let cachedPengaturan = null;
+    let statusTimer;
 
     document.addEventListener("DOMContentLoaded", checkSession);
+
+    function showStatus(elementId, message, type, duration = 5000, isLoading = false) {
+        const statusDiv = document.getElementById(elementId);
+        if (!statusDiv) return;
+        clearTimeout(statusTimer);
+        const alertHTML = `<div class="alert alert-${type}">${message}</div>`;
+        statusDiv.innerHTML = alertHTML;
+        if (!isLoading) {
+            statusTimer = setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, duration);
+        }
+    }
 
     function checkSession() {
         const token = localStorage.getItem('authToken');
@@ -370,7 +406,10 @@
         document.getElementById(viewId).style.display = displayType;
     }
     
-    function backToDashboard() { showView('dashboard-view'); }
+    function backToDashboard() { 
+        showView('dashboard-view');
+        fetchDashboardStatus();
+    }
 
     function showDashboard() {
         showView('dashboard-view');
@@ -389,8 +428,6 @@
             select.innerHTML = '<option value="" selected disabled>Tidak ditemukan</option>';
         }
     }
-    
-    // --- (Fungsi-fungsi lainnya seperti fetchDashboardStatus, populateDashboardStatus, alur input nilai, dll tetap sama) ---
 
     function fetchDashboardStatus() {
         const selectedTahunAjaranId = document.getElementById('status-tahun-ajaran-select').value;
@@ -463,6 +500,9 @@
         document.getElementById('tampilkan-siswa-btn').disabled = !(taId && mapel);
     }
 
+    /**
+     * ===== MODIFIKASI: Menambahkan email guru saat memanggil backend =====
+     */
     function loadNilaiTable() {
         const idTahunAjaran = document.getElementById('tahun-ajaran-select-input').value;
         const mapel = document.getElementById('mapel-select-input').value;
@@ -474,9 +514,12 @@
         document.getElementById('status').innerHTML = '';
         google.script.run
             .withSuccessHandler(onDataLoaded)
-            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, idTahunAjaran, thisRequestID);
+            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, idTahunAjaran, thisRequestID, loggedInUser.email); // email ditambahkan
     }
 
+    /**
+     * ===== MODIFIKASI: Mengunci form jika nilai sudah terkirim =====
+     */
     function onDataLoaded(response) {
         if (response.requestID !== currentMapelRequestID) return;
         const tableBody = document.getElementById('nilai-table-body');
@@ -484,7 +527,17 @@
         const data = response.siswaData; 
         if (data && data.length > 0) {
             data.forEach((item, index) => {
-                const row = `<tr><td>${index + 1}</td><td>${item.nama}</td><td><input type="number" class="form-control nilai-input" value="${item.nilai || ''}" min="0" max="100" inputmode="numeric" oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" data-nomor-ujian="${item.nomor_ujian}" data-original-nilai="${item.nilai || ''}"></td></tr>`;
+                const nilaiTampil = (item.nilai !== null && item.nilai !== undefined) ? item.nilai : '';
+                const row = `<tr>
+                                <td>${index + 1}</td>
+                                <td>${item.nama}</td>
+                                <td><input type="number" class="form-control nilai-input" 
+                                           value="${nilaiTampil}" 
+                                           min="0" max="100" inputmode="numeric" 
+                                           oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" 
+                                           data-nomor-ujian="${item.nomor_ujian}" 
+                                           data-original-nilai="${nilaiTampil}"></td>
+                             </tr>`;
                 tableBody.innerHTML += row;
             });
         } else {
@@ -492,11 +545,31 @@
         }
         document.getElementById('loading-spinner-table').style.display = 'none';
         document.getElementById('table-card-container').style.display = 'block';
+
+        // Logika untuk mengunci form
+        const submitButton = document.getElementById('submit-button');
+        const statusDiv = document.getElementById('status');
+        const allInputs = document.querySelectorAll('#nilai-table-body .nilai-input');
+
+        if (response.isSudahKirim) {
+            submitButton.disabled = true;
+            allInputs.forEach(input => {
+                input.disabled = true;
+            });
+            // Gunakan showStatus agar pesan tidak permanen jika user ganti mapel
+            const msg = `<strong>Nilai Terkunci.</strong> Data nilai untuk mata pelajaran ini sudah dikirim. Untuk mengubah, silakan batalkan status pengiriman di menu "Kirim dan Cetak Nilai UM" terlebih dahulu.`;
+            showStatus('status', msg, 'warning', 15000); // Tampilkan selama 15 detik
+        } else {
+            submitButton.disabled = false;
+            allInputs.forEach(input => {
+                input.disabled = false;
+            });
+            statusDiv.innerHTML = ''; 
+        }
     }
 
     function submitSemuaNilai() {
         const button = document.getElementById('submit-button');
-        const statusDiv = document.getElementById('status');
         const inputs = document.querySelectorAll('#nilai-table-body .nilai-input');
         const dataToSave = [];
         let hasError = false;
@@ -510,8 +583,14 @@
                 dataToSave.push({ nomorUjian: input.getAttribute('data-nomor-ujian'), nilai: input.value });
             }
         });
-        if (hasError) { statusDiv.innerHTML = `<div class="alert alert-danger">Terdapat nilai yang tidak valid (0-100).</div>`; return; }
-        if (dataToSave.length === 0) { statusDiv.innerHTML = `<div class="alert alert-info">Tidak ada perubahan data untuk disimpan.</div>`; return; }
+        if (hasError) { 
+            showStatus('status', 'Terdapat nilai yang tidak valid (0-100).', 'danger');
+            return; 
+        }
+        if (dataToSave.length === 0) { 
+            showStatus('status', 'Tidak ada perubahan data untuk disimpan.', 'info');
+            return; 
+        }
         const dataLengkap = dataToSave.map(item => ({
           ...item,
           mapel: document.getElementById('mapel-select-input').value,
@@ -519,20 +598,19 @@
           id_tahun_ajaran: document.getElementById('tahun-ajaran-select-input').value
         }));
         button.disabled = true;
-        statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan ${dataLengkap.length} data perubahan...</div>`;
+        showStatus('status', `Menyimpan ${dataLengkap.length} data perubahan...`, 'info', 0, true);
         google.script.run.withSuccessHandler(onSaveSuccess).simpanAtauUpdateNilai(dataLengkap);
     }
     
     function onSaveSuccess(response) {
         const button = document.getElementById('submit-button');
-        const statusDiv = document.getElementById('status');
         if (response.startsWith("Sukses")) {
-            statusDiv.innerHTML = `<div class="alert alert-success">${response}</div>`;
+            showStatus('status', response, 'success');
             document.querySelectorAll('#nilai-table-body .nilai-input').forEach(input => {
                 input.setAttribute('data-original-nilai', input.value);
             });
         } else {
-            statusDiv.innerHTML = `<div class="alert alert-danger">${response}</div>`;
+            showStatus('status', response, 'danger');
         }
         button.disabled = false;
     }
@@ -544,19 +622,62 @@
         document.getElementById('preview-container').style.display = 'none';
         document.getElementById('loading-spinner-cetak').style.display = 'none';
     }
-
-    function loadMapelForCetak() {
+    
+    function loadMapelForCetak(refreshOnly = false) {
         const taId = document.getElementById('tahun-ajaran-select-cetak').value;
         const mapelSelect = document.getElementById('mapel-select-cetak');
-        mapelSelect.innerHTML = '';
-        const mapelList = taId && cachedMapel[taId] ? cachedMapel[taId] : [];
-        if (mapelList.length > 0) {
-            mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
-            mapelList.forEach(m => mapelSelect.add(new Option(m, m)));
+        
+        if (!refreshOnly) {
+            mapelSelect.innerHTML = '<option value="" selected disabled>Memuat mapel...</option>';
+            document.getElementById('preview-container').style.display = 'none';
+        }
+
+        if (taId) {
+            google.script.run
+                .withSuccessHandler(populateMapelForCetak)
+                .withFailureHandler(onMapelLoadError)
+                .getMapelWithStatusForGuru(loggedInUser.email, taId);
         } else {
             mapelSelect.innerHTML = '<option value="" selected disabled>Pilih Tahun Ajaran</option>';
         }
         updatePreviewButtonState();
+    }
+    
+    function populateMapelForCetak(mapelData) {
+        const mapelSelect = document.getElementById('mapel-select-cetak');
+        const selectedValue = mapelSelect.value;
+        mapelSelect.innerHTML = ''; 
+        
+        if (mapelData && mapelData.error) {
+            onMapelLoadError(mapelData.error);
+            return;
+        }
+
+        if (mapelData && mapelData.length > 0) {
+            mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
+            mapelData.forEach(item => {
+                const icon = item.status ? '✔' : '✖';
+                const displayText = `${icon} ${item.mapel}`;
+                const option = new Option(displayText, item.mapel);
+                if (item.status) {
+                    option.style.color = 'green';
+                    option.style.fontWeight = 'bold';
+                } else {
+                    option.style.color = 'red';
+                }
+                mapelSelect.add(option);
+            });
+            mapelSelect.value = selectedValue;
+        } else {
+            mapelSelect.innerHTML = '<option value="" selected disabled>Mapel tidak ditemukan</option>';
+        }
+        updatePreviewButtonState();
+    }
+
+    function onMapelLoadError(error) {
+        const mapelSelect = document.getElementById('mapel-select-cetak');
+        mapelSelect.innerHTML = '<option value="" selected disabled>Gagal memuat</option>';
+        console.error("Gagal memuat mapel:", error);
     }
 
     function updatePreviewButtonState() {
@@ -585,6 +706,7 @@
         document.getElementById('loading-spinner-cetak').style.display = 'none';
         if (data.error) { alert('Gagal memuat data: ' + data.error); return; }
         document.getElementById('preview-container').style.display = 'block';
+        
         const tahunAjaranParts = data.deskripsi_ta.split('/');
         const tahunLulus = tahunAjaranParts.length > 1 ? tahunAjaranParts[1] : new Date().getFullYear();
         document.getElementById('preview-tahun').innerText = tahunLulus;
@@ -606,11 +728,22 @@
         document.getElementById('preview-guru-ttd').innerText = data.guru.nama;
         document.getElementById('preview-tempat-ttd').innerText = data.pengaturan.tempat || '______';
         document.getElementById('preview-tanggal-ttd').innerText = data.pengaturan.tanggalFormatted || '______';
+        
+        document.getElementById('pdf-status').innerHTML = '';
+        if (data.isSudahKirim) {
+            document.getElementById('kirim-btn').style.display = 'none';
+            document.getElementById('batal-kirim-btn').style.display = 'inline-block';
+            document.getElementById('unduh-pdf-btn').style.display = 'inline-block';
+            document.getElementById('batal-kirim-btn').disabled = false;
+            document.getElementById('unduh-pdf-btn').disabled = false;
+        } else {
+            document.getElementById('kirim-btn').style.display = 'inline-block';
+            document.getElementById('kirim-btn').disabled = false;
+            document.getElementById('batal-kirim-btn').style.display = 'none';
+            document.getElementById('unduh-pdf-btn').style.display = 'none';
+        }
     }
     
-    /**
-     * ===== DIPERBARUI: Fungsi pemicu unduhan langsung dari Base64 =====
-     */
     function downloadFromBase64(base64Data, fileName) {
         const byteCharacters = atob(base64Data);
         const byteNumbers = new Array(byteCharacters.length);
@@ -628,11 +761,12 @@
         document.body.removeChild(link);
     }
 
-    function kirimDanUnduhPdf() {
-        const button = document.getElementById('unduh-pdf-btn');
-        const statusDiv = document.getElementById('pdf-status');
-        button.disabled = true;
-        statusDiv.innerHTML = `<div class="alert alert-info">1/2: Mengirim status penyelesaian...</div>`;
+    function kirimStatus() {
+        const kirimBtn = document.getElementById('kirim-btn');
+        kirimBtn.disabled = true;
+        const msg = `<div class="d-flex align-items-center"><div class="spinner-border spinner-border-sm mr-2" role="status"></div><span>Mengirim status penyelesaian...</span></div>`;
+        showStatus('pdf-status', msg, 'info', 0, true);
+        
         const dataKirim = {
             id_tahun_ajaran: document.getElementById('tahun-ajaran-select-cetak').value,
             nama_mapel: document.getElementById('mapel-select-cetak').value,
@@ -643,50 +777,100 @@
 
     function onStatusSent(response) {
       if (response.success) {
-        const statusDiv = document.getElementById('pdf-status');
-        statusDiv.innerHTML = `<div class="alert alert-info">2/2: Status terkirim. Membuat file PDF...</div>`;
+        showStatus('pdf-status', 'Status berhasil terkirim. Tombol Unduh PDF sekarang tersedia.', 'success');
+        
+        document.getElementById('kirim-btn').style.display = 'none';
+        document.getElementById('batal-kirim-btn').style.display = 'inline-block';
+        document.getElementById('unduh-pdf-btn').style.display = 'inline-block';
+        document.getElementById('batal-kirim-btn').disabled = false;
+        document.getElementById('unduh-pdf-btn').disabled = false;
+        
+        loadMapelForCetak(true);
+        fetchDashboardStatus();
+
+      } else {
+        onPdfError({toString: () => response.error});
+      }
+    }
+
+    function batalKirim() {
+        const batalBtn = document.getElementById('batal-kirim-btn');
+        batalBtn.disabled = true;
+        const msg = `<div class="d-flex align-items-center"><div class="spinner-border spinner-border-sm mr-2" role="status"></div><span>Membatalkan status...</span></div>`;
+        showStatus('pdf-status', msg, 'info', 0, true);
+        const dataBatal = {
+            id_tahun_ajaran: document.getElementById('tahun-ajaran-select-cetak').value,
+            nama_mapel: document.getElementById('mapel-select-cetak').value,
+            email_guru: loggedInUser.email,
+        };
+        google.script.run.withSuccessHandler(onBatalSuccess).withFailureHandler(onBatalError).batalKirimStatusNilai(dataBatal);
+    }
+
+    function onBatalSuccess(response) {
+        if(response.success){
+            document.getElementById('kirim-btn').style.display = 'inline-block';
+            document.getElementById('kirim-btn').disabled = false;
+            document.getElementById('batal-kirim-btn').style.display = 'none';
+            document.getElementById('unduh-pdf-btn').style.display = 'none';
+            showStatus('pdf-status', 'Status pengiriman telah dibatalkan.', 'warning');
+            
+            loadMapelForCetak(true);
+            fetchDashboardStatus();
+        } else {
+            onBatalError({toString: () => response.error});
+        }
+    }
+
+    function onBatalError(error) {
+        document.getElementById('batal-kirim-btn').disabled = false;
+        showStatus('pdf-status', `Gagal membatalkan status: ${error.toString()}`, 'danger');
+    }
+
+    function unduhPdf() {
+        const unduhBtn = document.getElementById('unduh-pdf-btn');
+        unduhBtn.disabled = true;
+        const msg = `<div class="d-flex align-items-center"><div class="spinner-border spinner-border-sm mr-2" role="status"></div><span>Membuat file PDF, mohon tunggu...</span></div>`;
+        showStatus('pdf-status', msg, 'info', 0, true);
+        
         const dataPdf = {
             id_sekolah: loggedInUser.id_sekolah,
             id_tahun_ajaran: document.getElementById('tahun-ajaran-select-cetak').value,
             nama_mapel: document.getElementById('mapel-select-cetak').value,
             email_guru: loggedInUser.email
         };
-        // Panggil fungsi backend yang baru
         google.script.run.withSuccessHandler(onPdfDataReceived).withFailureHandler(onPdfError).generatePdfAsBase64(dataPdf);
-      } else {
-        onPdfError({toString: () => response.error});
-      }
     }
-
+    
     function onPdfDataReceived(response) {
-        const button = document.getElementById('unduh-pdf-btn');
-        const statusDiv = document.getElementById('pdf-status');
+        const unduhBtn = document.getElementById('unduh-pdf-btn');
         if (response.base64Data) {
-            statusDiv.innerHTML = `<div class="alert alert-success">PDF berhasil dibuat! Unduhan akan dimulai secara otomatis.</div>`;
-            // Panggil fungsi unduhan langsung
+            showStatus('pdf-status', 'PDF berhasil dibuat! Unduhan akan dimulai secara otomatis.', 'success');
             downloadFromBase64(response.base64Data, response.fileName);
         } else {
             onPdfError({toString: () => response.error});
         }
-        button.disabled = false;
+        unduhBtn.disabled = false;
     }
 
     function onPdfError(error) {
-        document.getElementById('unduh-pdf-btn').disabled = false;
-        document.getElementById('pdf-status').innerHTML = `<div class="alert alert-danger">Terjadi kesalahan: ${error.toString()}</div>`;
+        const kirimBtn = document.getElementById('kirim-btn');
+        kirimBtn.style.display = 'inline-block';
+        kirimBtn.disabled = false;
+        document.getElementById('batal-kirim-btn').style.display = 'none';
+        document.getElementById('unduh-pdf-btn').style.display = 'none';
+        showStatus('pdf-status', `Terjadi kesalahan: ${error.toString()}`, 'danger');
     }
 
     function unduhLaporan(emailGuru, namaMapel) {
+        $('#loadingModal').modal('show');
         const statusTASelect = document.getElementById('status-tahun-ajaran-select');
-        const taDeskripsi = statusTASelect.options[statusTASelect.selectedIndex].text;
-        alert(`Memulai proses unduhan untuk ${namaMapel} (${taDeskripsi}). Mohon tunggu...`);
         const dataPdf = {
             id_sekolah: loggedInUser.id_sekolah,
             id_tahun_ajaran: statusTASelect.value,
             nama_mapel: namaMapel,
             email_guru: emailGuru
         };
-        google.script.run.withSuccessHandler(onPdfDataReceivedFromDashboard).withFailureHandler(alert).generatePdfAsBase64(dataPdf);
+        google.script.run.withSuccessHandler(onPdfDataReceivedFromDashboard).withFailureHandler(onDashboardPdfError).generatePdfAsBase64(dataPdf);
     }
     
     function onPdfDataReceivedFromDashboard(response) {
@@ -695,9 +879,13 @@
         } else {
             alert("Gagal membuat PDF: " + (response.error || "Kesalahan tidak diketahui."));
         }
+        $('#loadingModal').modal('hide');
     }
-    
-    // --- (Fungsi-fungsi pengaturan cetak dan utility lainnya tetap sama) ---
+
+    function onDashboardPdfError(error) {
+        alert("Gagal membuat PDF: " + error.toString());
+        $('#loadingModal').modal('hide');
+    }
     
     function goToPengaturanCetak() {
         showView('pengaturan-cetak-view');
@@ -731,30 +919,27 @@
     function simpanPengaturanCetak() {
         const tempat = document.getElementById('tempat-ttd').value;
         const tanggal = document.getElementById('tanggal-ttd').value;
-        const statusDiv = document.getElementById('pengaturan-status');
         const button = document.getElementById('simpan-pengaturan-btn');
-        statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan...</div>`;
+        showStatus('pengaturan-status', 'Menyimpan...', 'info', 0, true);
         button.disabled = true;
         const pengaturan = { email: loggedInUser.email, tempat: tempat, tanggal: tanggal };
         google.script.run.withSuccessHandler(onPengaturanSaved).withFailureHandler(onPengaturanSaveFailed).savePengaturanCetak(pengaturan);
     }
 
     function onPengaturanSaved(response) {
-        const statusDiv = document.getElementById('pengaturan-status');
         document.getElementById('simpan-pengaturan-btn').disabled = false;
         if(response.success) {
-            statusDiv.innerHTML = `<div class="alert alert-success">Pengaturan berhasil disimpan.</div>`;
+            showStatus('pengaturan-status', 'Pengaturan berhasil disimpan.', 'success');
             cachedPengaturan = { tempat: document.getElementById('tempat-ttd').value, tanggal: document.getElementById('tanggal-ttd').value };
             localStorage.setItem('cachedPengaturan', JSON.stringify(cachedPengaturan));
         } else {
-            statusDiv.innerHTML = `<div class="alert alert-danger">Gagal menyimpan: ${response.error}</div>`;
+            showStatus('pengaturan-status', `Gagal menyimpan: ${response.error}`, 'danger');
         }
     }
     
     function onPengaturanSaveFailed(error) {
         document.getElementById('simpan-pengaturan-btn').disabled = false;
-        const statusDiv = document.getElementById('pengaturan-status');
-        statusDiv.innerHTML = `<div class="alert alert-danger">Terjadi kesalahan: ${error.toString()}</div>`;
+        showStatus('pengaturan-status', `Terjadi kesalahan: ${error.toString()}`, 'danger');
     }
     
     function logout() {
