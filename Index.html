@@ -229,25 +229,17 @@
     <hr>
     <div class="card col-md-8 mx-auto">
         <div class="card-body">
-            <div id="loading-pengaturan" class="text-center mb-3">
-                <div class="spinner-border spinner-border-sm" role="status">
-                    <span class="sr-only">Loading...</span>
-                </div>
-                <span class="ml-2">Memuat pengaturan...</span>
+            <p class="text-muted">Pengaturan ini akan digunakan pada bagian tanda tangan di dokumen PDF yang akan diunduh.</p>
+            <div class="form-group">
+                <label for="tempat-ttd">Tempat Tanda Tangan</label>
+                <input type="text" id="tempat-ttd" class="form-control" placeholder="Contoh: Butung">
             </div>
-            <div id="form-pengaturan" style="display:none;">
-                <p class="text-muted">Pengaturan ini akan digunakan pada bagian tanda tangan di dokumen PDF yang akan diunduh.</p>
-                <div class="form-group">
-                    <label for="tempat-ttd">Tempat Tanda Tangan</label>
-                    <input type="text" id="tempat-ttd" class="form-control" placeholder="Contoh: Butung" disabled>
-                </div>
-                <div class="form-group">
-                    <label for="tanggal-ttd">Tanggal Tanda Tangan</label>
-                    <input type="date" id="tanggal-ttd" class="form-control" disabled>
-                </div>
-                <button id="simpan-pengaturan-btn" class="btn btn-primary" onclick="simpanPengaturanCetak()" disabled>Simpan Pengaturan</button>
-                <div id="pengaturan-status" class="mt-3"></div>
+            <div class="form-group">
+                <label for="tanggal-ttd">Tanggal Tanda Tangan</label>
+                <input type="date" id="tanggal-ttd" class="form-control">
             </div>
+            <button id="simpan-pengaturan-btn" class="btn btn-primary" onclick="simpanPengaturanCetak()">Simpan Pengaturan</button>
+            <div id="pengaturan-status" class="mt-3"></div>
         </div>
     </div>
   </div>
@@ -258,6 +250,7 @@
     let currentMapelRequestID = 0;
     let cachedTahunAjaran = null;
     let cachedMapel = null;
+    let cachedPengaturan = null;
 
     // --- SESSION & AUTHENTICATION ---
     document.addEventListener("DOMContentLoaded", checkSession);
@@ -268,11 +261,13 @@
             const localUser = localStorage.getItem('loggedInUser');
             const localMapel = localStorage.getItem('cachedMapel');
             const localTA = localStorage.getItem('cachedTahunAjaran');
+            const localPengaturan = localStorage.getItem('cachedPengaturan');
             
             if (localUser && localMapel && localTA) {
                 loggedInUser = JSON.parse(localUser);
                 cachedMapel = JSON.parse(localMapel);
                 cachedTahunAjaran = JSON.parse(localTA);
+                cachedPengaturan = localPengaturan ? JSON.parse(localPengaturan) : {};
                 google.script.run.withSuccessHandler(onTokenVerified).verifyToken(token);
                 showDashboard();
             } else {
@@ -287,7 +282,7 @@
         if (user) {
             loggedInUser = user;
             localStorage.setItem('loggedInUser', JSON.stringify(user));
-            loadInitialData(false); // Fetch fresh data in background
+            loadInitialData(false); 
         } else {
             forceLogout();
         }
@@ -557,7 +552,11 @@
             return;
         }
         document.getElementById('preview-container').style.display = 'block';
-        document.getElementById('preview-tahun').innerText = new Date().getFullYear();
+        
+        const tahunAjaranParts = data.deskripsi_ta.split('/');
+        const tahunLulus = tahunAjaranParts.length > 1 ? tahunAjaranParts[1] : new Date().getFullYear();
+        document.getElementById('preview-tahun').innerText = tahunLulus;
+        
         document.getElementById('preview-ta-deskripsi').innerText = data.deskripsi_ta;
         document.getElementById('preview-mapel').innerText = `: ${data.nama_mapel}`;
         document.getElementById('preview-guru').innerText = `: ${data.guru.nama}`;
@@ -586,22 +585,40 @@
     function goToPengaturanCetak() {
         showView('pengaturan-cetak-view');
         document.getElementById('pengaturan-status').innerHTML = '';
-        document.getElementById('loading-pengaturan').style.display = 'block';
-        document.getElementById('form-pengaturan').style.display = 'none';
-        document.getElementById('tempat-ttd').disabled = true;
-        document.getElementById('tanggal-ttd').disabled = true;
-        document.getElementById('simpan-pengaturan-btn').disabled = true;
+        
+        const tempatInput = document.getElementById('tempat-ttd');
+        const tanggalInput = document.getElementById('tanggal-ttd');
+        const simpanBtn = document.getElementById('simpan-pengaturan-btn');
+
+        // Set loading state
+        tempatInput.value = '';
+        tempatInput.placeholder = 'Memuat data...';
+        tanggalInput.value = '';
+        tempatInput.disabled = true;
+        tanggalInput.disabled = true;
+        simpanBtn.disabled = true;
+        
+        // Fetch fresh data
         google.script.run.withSuccessHandler(onPengaturanLoaded).getPengaturanCetak(loggedInUser.email);
     }
 
     function onPengaturanLoaded(pengaturan) {
-        document.getElementById('loading-pengaturan').style.display = 'none';
-        document.getElementById('form-pengaturan').style.display = 'block';
-        document.getElementById('tempat-ttd').value = pengaturan.tempat || '';
-        document.getElementById('tanggal-ttd').value = pengaturan.tanggal || '';
-        document.getElementById('tempat-ttd').disabled = false;
-        document.getElementById('tanggal-ttd').disabled = false;
-        document.getElementById('simpan-pengaturan-btn').disabled = false;
+        cachedPengaturan = pengaturan;
+        localStorage.setItem('cachedPengaturan', JSON.stringify(pengaturan));
+
+        const tempatInput = document.getElementById('tempat-ttd');
+        const tanggalInput = document.getElementById('tanggal-ttd');
+        const simpanBtn = document.getElementById('simpan-pengaturan-btn');
+
+        // Restore placeholder and enable fields
+        tempatInput.placeholder = 'Contoh: Butung';
+        tempatInput.disabled = false;
+        tanggalInput.disabled = false;
+        simpanBtn.disabled = false;
+
+        // Populate with the fresh data
+        tempatInput.value = pengaturan.tempat || '';
+        tanggalInput.value = pengaturan.tanggal || '';
     }
 
     function simpanPengaturanCetak() {
@@ -624,6 +641,11 @@
         document.getElementById('simpan-pengaturan-btn').disabled = false;
         if(response.success) {
             statusDiv.innerHTML = `<div class="alert alert-success">Pengaturan berhasil disimpan.</div>`;
+            cachedPengaturan = {
+                tempat: document.getElementById('tempat-ttd').value,
+                tanggal: document.getElementById('tanggal-ttd').value
+            };
+            localStorage.setItem('cachedPengaturan', JSON.stringify(cachedPengaturan));
         } else {
             statusDiv.innerHTML = `<div class="alert alert-danger">Gagal menyimpan: ${response.error}</div>`;
         }
@@ -637,10 +659,7 @@
     
     // --- UTILITY FUNCTIONS ---
     function logout() {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('cachedMapel');
-        localStorage.removeItem('cachedTahunAjaran');
-        localStorage.removeItem('loggedInUser');
+        localStorage.clear();
         forceLogout();
     }
 
@@ -648,6 +667,7 @@
         loggedInUser = null;
         cachedTahunAjaran = null;
         cachedMapel = null; 
+        cachedPengaturan = null;
         showView('login-view', 'flex');
         document.getElementById('email').value = '';
         document.getElementById('password').value = '';
