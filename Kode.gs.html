@@ -25,6 +25,69 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 }
 
+/**
+ * ===== BARU: Fungsi efisien untuk mengambil semua data awal guru =====
+ * Menggabungkan pengambilan tahun ajaran dan mapel beserta statusnya
+ * untuk mengurangi panggilan ke server dan mempercepat loading awal.
+ * @param {string} email - Email guru yang login.
+ * @returns {Object} Objek berisi data tahun ajaran dan mapel dengan status.
+ */
+function getInitialDataForGuru(email) {
+  try {
+    // 1. Ambil semua Tahun Ajaran
+    const taData = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1);
+    const allTahunAjaran = taData.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] })).reverse();
+
+    // 2. Ambil semua Mapel untuk guru tersebut
+    const mapelData = MAPEL_SHEET.getDataRange().getValues().slice(1);
+    const guruMapelList = mapelData
+      .filter(row => row[0].toLowerCase() === email.toLowerCase())
+      .map(row => ({ id_tahun_ajaran: row[2], mapel: row[1] }));
+
+    if (guruMapelList.length === 0) {
+      return { tahunAjaran: allTahunAjaran, mapelWithStatus: {} };
+    }
+
+    // 3. Ambil semua status kirim untuk guru tersebut
+    const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
+    const sentStatusSet = statusData
+      .filter(row => row[2].toLowerCase() === email.toLowerCase())
+      .reduce((set, row) => {
+        const key = `${row[1]}_${row[3]}`; // key: id_tahun_ajaran + mapel
+        set.add(key);
+        return set;
+      }, new Set());
+
+    // 4. Gabungkan Mapel dan Status, kelompokkan berdasarkan id_tahun_ajaran
+    const mapelWithStatus = guruMapelList.reduce((acc, item) => {
+      const taId = item.id_tahun_ajaran;
+      if (!acc[taId]) {
+        acc[taId] = [];
+      }
+      const key = `${taId}_${item.mapel}`;
+      acc[taId].push({
+        mapel: item.mapel,
+        status: sentStatusSet.has(key)
+      });
+      return acc;
+    }, {});
+
+    // Urutkan mapel berdasarkan abjad di setiap tahun ajaran
+    for (const taId in mapelWithStatus) {
+        mapelWithStatus[taId].sort((a, b) => a.mapel.localeCompare(b.mapel));
+    }
+
+    return {
+      tahunAjaran: allTahunAjaran,
+      mapelWithStatus: mapelWithStatus
+    };
+  } catch (e) {
+    Logger.log(e);
+    return { error: e.toString() };
+  }
+}
+
+
 function userLogin(credentials) {
   if (!credentials || !credentials.email || !credentials.password) return null;
   const dataGuru = GURU_SHEET.getDataRange().getValues();
@@ -63,45 +126,18 @@ function getAllMapelForGuru(email) {
     }, {});
 }
 
-function getMapelWithStatusForGuru(email, id_tahun_ajaran) {
-  try {
-    if (!email || !id_tahun_ajaran) return [];
-    const mapelData = MAPEL_SHEET.getDataRange().getValues().slice(1);
-    const guruMapelList = mapelData
-      .filter(row => row[0].toLowerCase() === email.toLowerCase() && row[2] == id_tahun_ajaran)
-      .map(row => row[1]); 
-    if (guruMapelList.length === 0) return [];
-    const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
-    const sentStatusSet = statusData
-      .filter(row => row[1] == id_tahun_ajaran && row[2].toLowerCase() === email.toLowerCase())
-      .reduce((set, row) => {
-        set.add(row[3]);
-        return set;
-      }, new Set());
-    const result = guruMapelList.map(mapel => {
-      return {
-        mapel: mapel,
-        status: sentStatusSet.has(mapel)
-      };
-    }).sort((a, b) => a.mapel.localeCompare(b.mapel));
-    return result;
-  } catch (e) {
-    Logger.log(e);
-    return { error: e.toString() };
-  }
-}
+/**
+ * ===== DIHAPUS: Fungsi ini tidak lagi digunakan =====
+ * Logika telah dipindahkan ke client-side dan data diambil oleh getInitialDataForGuru.
+ * function getMapelWithStatusForGuru(...) { ... }
+ */
 
 function getTahunAjaran() {
   const data = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1);
   const mappedData = data.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] }));
-  return mappedData.reverse(); 
+  return mappedData.reverse();
 }
 
-/**
- * ===== MODIFIKASI: Menambahkan email guru dan pengecekan status kirim =====
- * Fungsi ini sekarang juga memeriksa status kirim dan mengirimkannya ke frontend.
- * @param {string} email_guru - Email guru yang sedang login.
- */
 function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID, email_guru) {
   const enrollmentData = ENROLLMENT_SHEET.getDataRange().getValues().slice(1);
   const enrolledSiswa = enrollmentData
@@ -126,7 +162,6 @@ function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID, em
     };
   }).sort((a, b) => a.nama.localeCompare(b.nama));
   
-  // Pengecekan status kirim
   const keyCek = `${id_tahun_ajaran}_${email_guru.toLowerCase()}_${nama_mapel}`;
   const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
   const sentStatusSet = statusData.reduce((set, row) => { set.add(row[0]); return set; }, new Set());
@@ -387,6 +422,19 @@ function getPengaturanCetak(email) {
   }
 }
 
+function terbilang(n) {
+    if (n < 0 || n > 100 || isNaN(n) || n === '') return '';
+    if (n === 100) return 'Seratus';
+    if (n === 0) return 'Nol';
+    const satuan = ["", "Satu", "Dua", "Tiga", "Empat", "Lima", "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"];
+    if (n < 12) return satuan[n];
+    if (n < 20) return satuan[n - 10] + " Belas";
+    const puluhan = Math.floor(n / 10);
+    const sisa = n % 10;
+    return (satuan[puluhan] + " Puluh") + (sisa === 0 ? '' : " " + satuan[sisa]);
+}
+
+// Fungsi generateTokensForAllGurus tidak diubah
 function generateTokensForAllGurus() {
   const range = GURU_SHEET.getDataRange();
   const values = range.getValues();
@@ -399,16 +447,4 @@ function generateTokensForAllGurus() {
     }
   }
   SpreadsheetApp.getUi().alert('Proses pembuatan token selesai!');
-}
-
-function terbilang(n) {
-    if (n < 0 || n > 100 || isNaN(n) || n === '') return '';
-    if (n === 100) return 'Seratus';
-    if (n === 0) return 'Nol';
-    const satuan = ["", "Satu", "Dua", "Tiga", "Empat", "Lima", "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"];
-    if (n < 12) return satuan[n];
-    if (n < 20) return satuan[n - 10] + " Belas";
-    const puluhan = Math.floor(n / 10);
-    const sisa = n % 10;
-    return (satuan[puluhan] + " Puluh") + (sisa === 0 ? '' : " " + satuan[sisa]);
 }
