@@ -14,7 +14,6 @@
       align-items: center; 
       justify-content: center; 
     }
-    /* Sembunyikan semua view utama secara default */
     #input-nilai-view, #login-view, #dashboard-view, #loading-view, 
     #cetak-nilai-view, #pengaturan-cetak-view { 
       display: none; 
@@ -93,7 +92,7 @@
         <div class="col-md-4 mb-3">
             <div class="card clickable-card h-100" onclick="goToCetakNilai()">
                 <div class="card-body">
-                    <h5 class="card-title">Cetak Nilai UM</h5>
+                    <h5 class="card-title">Kirim dan Cetak Nilai UM</h5>
                     <p class="card-text text-muted">Pilih tahun ajaran dan mapel untuk mencetak laporan nilai akhir.</p>
                 </div>
             </div>
@@ -107,6 +106,42 @@
             </div>
         </div>
     </div>
+    
+    <div class="card mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            Status Input Nilai Guru
+            <div class="col-md-5 col-lg-4">
+                <select id="status-tahun-ajaran-select" class="form-control form-control-sm" onchange="fetchDashboardStatus()">
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="loading-spinner-status" class="text-center">
+                <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+                <p class="mt-1">Memuat status...</p>
+            </div>
+            <div id="status-table-container" class="table-responsive" style="display: none;">
+                <table class="table table-striped table-bordered">
+                    <thead class="thead-light">
+                        <tr>
+                            <th>Nama Guru</th>
+                            <th>Mata Pelajaran</th>
+                            <th class="text-center" style="width: 120px;">Status</th>
+                            <th class="text-center" style="width: 150px;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="status-table-body">
+                    </tbody>
+                </table>
+            </div>
+             <div id="status-table-error" class="text-center text-muted" style="display: none;">
+                Gagal memuat data status. Silakan coba lagi nanti.
+            </div>
+        </div>
+    </div>
+    
   </div>
 
   <div id="input-nilai-view" class="container mt-4 mb-4">
@@ -189,7 +224,7 @@
                 <div class="table-responsive">
                     <table class="table table-bordered table-striped">
                         <thead class="thead-dark">
-                            <tr><th>No</th><th>Nomor Ujian</th><th>Nama Peserta Ujian</th><th>Nilai</th><th>Nilai dengan Huruf</th></tr>
+                            <tr><th>No</th><th>Ruang Ujian</th><th>Nomor Ujian</th><th>Nama Peserta Ujian</th><th>Nilai</th><th>Nilai dengan Huruf</th></tr>
                         </thead>
                         <tbody id="preview-table-body"></tbody>
                     </table>
@@ -210,7 +245,7 @@
                     </div>
                 </div>
                 <hr>
-                <button id="unduh-pdf-btn" class="btn btn-success" onclick="unduhPdf()">Unduh PDF</button>
+                <button id="unduh-pdf-btn" class="btn btn-success" onclick="kirimDanUnduhPdf()">Kirim dan Unduh PDF</button>
                 <div id="pdf-status" class="mt-2"></div>
             </div>
             <div id="loading-spinner-cetak" class="text-center mt-4" style="display: none;">
@@ -245,14 +280,13 @@
   </div>
 
 <script>
-    // --- GLOBAL VARIABLES ---
+    
     let loggedInUser = null;
     let currentMapelRequestID = 0;
     let cachedTahunAjaran = null;
     let cachedMapel = null;
     let cachedPengaturan = null;
 
-    // --- SESSION & AUTHENTICATION ---
     document.addEventListener("DOMContentLoaded", checkSession);
 
     function checkSession() {
@@ -262,7 +296,6 @@
             const localMapel = localStorage.getItem('cachedMapel');
             const localTA = localStorage.getItem('cachedTahunAjaran');
             const localPengaturan = localStorage.getItem('cachedPengaturan');
-            
             if (localUser && localMapel && localTA) {
                 loggedInUser = JSON.parse(localUser);
                 cachedMapel = JSON.parse(localMapel);
@@ -318,30 +351,18 @@
     
     function loadInitialData(showDashOnComplete) {
         let loadCount = 2;
-        
         const checkDone = () => {
             loadCount--;
             if (loadCount === 0) {
                 localStorage.setItem('cachedMapel', JSON.stringify(cachedMapel));
                 localStorage.setItem('cachedTahunAjaran', JSON.stringify(cachedTahunAjaran));
-                if (showDashOnComplete) {
-                    showDashboard();
-                }
+                if (showDashOnComplete) showDashboard();
             }
         };
-
-        google.script.run.withSuccessHandler(data => {
-            cachedMapel = data;
-            checkDone();
-        }).getAllMapelForGuru(loggedInUser.email);
-
-        google.script.run.withSuccessHandler(data => {
-            cachedTahunAjaran = data;
-            checkDone();
-        }).getTahunAjaran();
+        google.script.run.withSuccessHandler(data => { cachedMapel = data; checkDone(); }).getAllMapelForGuru(loggedInUser.email);
+        google.script.run.withSuccessHandler(data => { cachedTahunAjaran = data; checkDone(); }).getTahunAjaran();
     }
 
-    // --- UI & NAVIGATION ---
     function showView(viewId, displayType = 'block') {
         ['loading-view', 'login-view', 'dashboard-view', 'input-nilai-view', 'cetak-nilai-view', 'pengaturan-cetak-view'].forEach(id => {
             document.getElementById(id).style.display = 'none';
@@ -349,33 +370,73 @@
         document.getElementById(viewId).style.display = displayType;
     }
     
-    function backToDashboard() {
-        showView('dashboard-view');
-    }
+    function backToDashboard() { showView('dashboard-view'); }
 
     function showDashboard() {
         showView('dashboard-view');
         document.getElementById('welcome-message-dash').innerText = `Halo, ${loggedInUser.nama}`;
+        populateTahunAjaran(cachedTahunAjaran, 'status-tahun-ajaran-select', false);
+        fetchDashboardStatus();
     }
     
-    function populateTahunAjaran(data, selectId) {
+    function populateTahunAjaran(data, selectId, addDefaultOption = false) {
         const select = document.getElementById(selectId);
-        select.innerHTML = '<option value="" selected disabled>-- Pilih --</option>';
+        select.innerHTML = '';
+        if (addDefaultOption) select.innerHTML = '<option value="" selected disabled>-- Pilih --</option>';
         if (data && data.length > 0) {
-            data.forEach(item => {
-                select.add(new Option(item.deskripsi, item.id_tahun_ajaran));
-            });
+            data.forEach(item => select.add(new Option(item.deskripsi, item.id_tahun_ajaran)));
         } else {
             select.innerHTML = '<option value="" selected disabled>Tidak ditemukan</option>';
         }
     }
+    
+    // --- (Fungsi-fungsi lainnya seperti fetchDashboardStatus, populateDashboardStatus, alur input nilai, dll tetap sama) ---
 
-    // --- FLOW: INPUT NILAI ---
+    function fetchDashboardStatus() {
+        const selectedTahunAjaranId = document.getElementById('status-tahun-ajaran-select').value;
+        document.getElementById('status-table-container').style.display = 'none';
+        document.getElementById('status-table-error').style.display = 'none';
+        document.getElementById('loading-spinner-status').style.display = 'block';
+        if (!selectedTahunAjaranId) {
+             populateDashboardStatus([]);
+             return;
+        }
+        google.script.run
+            .withSuccessHandler(populateDashboardStatus)
+            .withFailureHandler(onStatusLoadFailure)
+            .getDashboardStatus(loggedInUser.id_sekolah, selectedTahunAjaranId);
+    }
+
+    function populateDashboardStatus(statusData) {
+        document.getElementById('loading-spinner-status').style.display = 'none';
+        if (statusData.error) { onStatusLoadFailure(statusData.error); return; }
+        const tableBody = document.getElementById('status-table-body');
+        tableBody.innerHTML = ''; 
+        if (statusData && statusData.length > 0) {
+            statusData.forEach(item => {
+                const statusIcon = item.status ? `<span class="text-success font-weight-bold">✔ Selesai</span>` : `<span class="text-danger">✖ Belum</span>`;
+                const actionButton = item.status ? `<button class="btn btn-sm btn-info" onclick="unduhLaporan('${item.email}', '${item.mapel}')">Unduh PDF</button>` : `<button class="btn btn-sm btn-secondary" disabled>Unduh PDF</button>`;
+                const row = `<tr><td>${item.nama}</td><td>${item.mapel}</td><td class="text-center">${statusIcon}</td><td class="text-center">${actionButton}</td></tr>`;
+                tableBody.innerHTML += row;
+            });
+            document.getElementById('status-table-container').style.display = 'block';
+        } else {
+             const select = document.getElementById('status-tahun-ajaran-select');
+             const selectedTADescription = select.options[select.selectedIndex]?.text || 'tahun ajaran ini';
+             tableBody.innerHTML = `<tr><td colspan="4" class="text-center">Tidak ada data mata pelajaran untuk ${selectedTADescription}.</td></tr>`;
+             document.getElementById('status-table-container').style.display = 'block';
+        }
+    }
+
+    function onStatusLoadFailure(error) {
+        console.error("Gagal memuat status dashboard:", error);
+        document.getElementById('loading-spinner-status').style.display = 'none';
+        document.getElementById('status-table-error').style.display = 'block';
+    }
+
     function goToInputNilai() {
         showView('input-nilai-view');
-        const taSelect = document.getElementById('tahun-ajaran-select-input');
-        taSelect.innerHTML = '<option>Memuat...</option>';
-        populateTahunAjaran(cachedTahunAjaran, 'tahun-ajaran-select-input');
+        populateTahunAjaran(cachedTahunAjaran, 'tahun-ajaran-select-input', true);
         loadMapelForInput();
         document.getElementById('table-card-container').style.display = 'none';
         document.getElementById('loading-spinner-table').style.display = 'none';
@@ -386,7 +447,6 @@
         const mapelSelect = document.getElementById('mapel-select-input');
         mapelSelect.innerHTML = '';
         const mapelList = taId && cachedMapel[taId] ? cachedMapel[taId] : [];
-        
         if (mapelList.length > 0) {
             mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
             mapelList.forEach(m => mapelSelect.add(new Option(m, m)));
@@ -407,13 +467,11 @@
         const idTahunAjaran = document.getElementById('tahun-ajaran-select-input').value;
         const mapel = document.getElementById('mapel-select-input').value;
         if (!idTahunAjaran || !mapel) return;
-
         currentMapelRequestID++;
         const thisRequestID = currentMapelRequestID;
         document.getElementById('table-card-container').style.display = 'none';
         document.getElementById('loading-spinner-table').style.display = 'block';
         document.getElementById('status').innerHTML = '';
-
         google.script.run
             .withSuccessHandler(onDataLoaded)
             .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, idTahunAjaran, thisRequestID);
@@ -421,11 +479,9 @@
 
     function onDataLoaded(response) {
         if (response.requestID !== currentMapelRequestID) return;
-
         const tableBody = document.getElementById('nilai-table-body');
         tableBody.innerHTML = ''; 
         const data = response.siswaData; 
-
         if (data && data.length > 0) {
             data.forEach((item, index) => {
                 const row = `<tr><td>${index + 1}</td><td>${item.nama}</td><td><input type="number" class="form-control nilai-input" value="${item.nilai || ''}" min="0" max="100" inputmode="numeric" oninput="this.value = this.value > 100 ? 100 : this.value < 0 ? 0 : this.value" data-nomor-ujian="${item.nomor_ujian}" data-original-nilai="${item.nilai || ''}"></td></tr>`;
@@ -437,45 +493,31 @@
         document.getElementById('loading-spinner-table').style.display = 'none';
         document.getElementById('table-card-container').style.display = 'block';
     }
-    
+
     function submitSemuaNilai() {
         const button = document.getElementById('submit-button');
         const statusDiv = document.getElementById('status');
         const inputs = document.querySelectorAll('#nilai-table-body .nilai-input');
         const dataToSave = [];
         let hasError = false;
-
         inputs.forEach(input => {
             input.classList.remove('is-invalid');
             const nilai = parseFloat(input.value);
             if (input.value !== '' && (isNaN(nilai) || nilai < 0 || nilai > 100)) {
-                input.classList.add('is-invalid');
-                hasError = true;
+                input.classList.add('is-invalid'); hasError = true;
             }
             if (input.value !== input.getAttribute('data-original-nilai')) {
-                dataToSave.push({
-                    nomorUjian: input.getAttribute('data-nomor-ujian'),
-                    nilai: input.value
-                });
+                dataToSave.push({ nomorUjian: input.getAttribute('data-nomor-ujian'), nilai: input.value });
             }
         });
-
-        if (hasError) {
-            statusDiv.innerHTML = `<div class="alert alert-danger">Terdapat nilai yang tidak valid (0-100).</div>`;
-            return;
-        }
-        if (dataToSave.length === 0) {
-            statusDiv.innerHTML = `<div class="alert alert-info">Tidak ada perubahan data untuk disimpan.</div>`;
-            return;
-        }
-        
+        if (hasError) { statusDiv.innerHTML = `<div class="alert alert-danger">Terdapat nilai yang tidak valid (0-100).</div>`; return; }
+        if (dataToSave.length === 0) { statusDiv.innerHTML = `<div class="alert alert-info">Tidak ada perubahan data untuk disimpan.</div>`; return; }
         const dataLengkap = dataToSave.map(item => ({
           ...item,
           mapel: document.getElementById('mapel-select-input').value,
           emailGuru: loggedInUser.email,
           id_tahun_ajaran: document.getElementById('tahun-ajaran-select-input').value
         }));
-
         button.disabled = true;
         statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan ${dataLengkap.length} data perubahan...</div>`;
         google.script.run.withSuccessHandler(onSaveSuccess).simpanAtauUpdateNilai(dataLengkap);
@@ -494,13 +536,10 @@
         }
         button.disabled = false;
     }
-    
-    // --- FLOW: CETAK NILAI ---
+
     function goToCetakNilai() {
         showView('cetak-nilai-view');
-        const taSelect = document.getElementById('tahun-ajaran-select-cetak');
-        taSelect.innerHTML = '<option>Memuat...</option>';
-        populateTahunAjaran(cachedTahunAjaran, 'tahun-ajaran-select-cetak');
+        populateTahunAjaran(cachedTahunAjaran, 'tahun-ajaran-select-cetak', true);
         loadMapelForCetak();
         document.getElementById('preview-container').style.display = 'none';
         document.getElementById('loading-spinner-cetak').style.display = 'none';
@@ -511,7 +550,6 @@
         const mapelSelect = document.getElementById('mapel-select-cetak');
         mapelSelect.innerHTML = '';
         const mapelList = taId && cachedMapel[taId] ? cachedMapel[taId] : [];
-        
         if (mapelList.length > 0) {
             mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
             mapelList.forEach(m => mapelSelect.add(new Option(m, m)));
@@ -531,10 +569,8 @@
         const taSelect = document.getElementById('tahun-ajaran-select-cetak');
         const mapelSelect = document.getElementById('mapel-select-cetak');
         if (!taSelect.value || !mapelSelect.value) return;
-
         document.getElementById('preview-container').style.display = 'none';
         document.getElementById('loading-spinner-cetak').style.display = 'block';
-
         const data = {
             id_sekolah: loggedInUser.id_sekolah,
             id_tahun_ajaran: taSelect.value,
@@ -544,19 +580,14 @@
         };
         google.script.run.withSuccessHandler(onPreviewDataLoaded).getCetakData(data);
     }
-
+    
     function onPreviewDataLoaded(data) {
         document.getElementById('loading-spinner-cetak').style.display = 'none';
-        if (data.error) {
-            alert('Gagal memuat data: ' + data.error);
-            return;
-        }
+        if (data.error) { alert('Gagal memuat data: ' + data.error); return; }
         document.getElementById('preview-container').style.display = 'block';
-        
         const tahunAjaranParts = data.deskripsi_ta.split('/');
         const tahunLulus = tahunAjaranParts.length > 1 ? tahunAjaranParts[1] : new Date().getFullYear();
         document.getElementById('preview-tahun').innerText = tahunLulus;
-        
         document.getElementById('preview-ta-deskripsi').innerText = data.deskripsi_ta;
         document.getElementById('preview-mapel').innerText = `: ${data.nama_mapel}`;
         document.getElementById('preview-guru').innerText = `: ${data.guru.nama}`;
@@ -564,11 +595,11 @@
         tableBody.innerHTML = '';
         if (data.nilai_siswa.length > 0) {
             data.nilai_siswa.forEach((item, index) => {
-                const row = `<tr><td>${index + 1}</td><td>${item.nomor_ujian}</td><td>${item.nama}</td><td>${item.nilai}</td><td>${item.nilai_huruf}</td></tr>`;
+                const row = `<tr><td>${index + 1}</td><td>${item.ruang_ujian}</td><td>${item.nomor_ujian}</td><td>${item.nama}</td><td>${item.nilai}</td><td>${item.nilai_huruf}</td></tr>`;
                 tableBody.innerHTML += row;
             });
         } else {
-            tableBody.innerHTML = '<tr><td colspan="5" class="text-center">Data nilai tidak ditemukan.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="6" class="text-center">Data nilai tidak ditemukan.</td></tr>';
         }
         document.getElementById('preview-kepsek').innerText = data.sekolah.kepala_sekolah;
         document.getElementById('preview-nip').innerText = data.sekolah.nip_kepsek || '-';
@@ -576,47 +607,123 @@
         document.getElementById('preview-tempat-ttd').innerText = data.pengaturan.tempat || '______';
         document.getElementById('preview-tanggal-ttd').innerText = data.pengaturan.tanggalFormatted || '______';
     }
+    
+    /**
+     * ===== DIPERBARUI: Fungsi pemicu unduhan langsung dari Base64 =====
+     */
+    function downloadFromBase64(base64Data, fileName) {
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], {type: 'application/pdf'});
 
-    function unduhPdf() {
-        alert("Fungsi 'Unduh PDF' sedang dalam pengembangan.");
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
-    // --- FLOW: PENGATURAN CETAK ---
+    function kirimDanUnduhPdf() {
+        const button = document.getElementById('unduh-pdf-btn');
+        const statusDiv = document.getElementById('pdf-status');
+        button.disabled = true;
+        statusDiv.innerHTML = `<div class="alert alert-info">1/2: Mengirim status penyelesaian...</div>`;
+        const dataKirim = {
+            id_tahun_ajaran: document.getElementById('tahun-ajaran-select-cetak').value,
+            nama_mapel: document.getElementById('mapel-select-cetak').value,
+            email_guru: loggedInUser.email,
+        };
+        google.script.run.withSuccessHandler(onStatusSent).withFailureHandler(onPdfError).kirimStatusNilai(dataKirim);
+    }
+
+    function onStatusSent(response) {
+      if (response.success) {
+        const statusDiv = document.getElementById('pdf-status');
+        statusDiv.innerHTML = `<div class="alert alert-info">2/2: Status terkirim. Membuat file PDF...</div>`;
+        const dataPdf = {
+            id_sekolah: loggedInUser.id_sekolah,
+            id_tahun_ajaran: document.getElementById('tahun-ajaran-select-cetak').value,
+            nama_mapel: document.getElementById('mapel-select-cetak').value,
+            email_guru: loggedInUser.email
+        };
+        // Panggil fungsi backend yang baru
+        google.script.run.withSuccessHandler(onPdfDataReceived).withFailureHandler(onPdfError).generatePdfAsBase64(dataPdf);
+      } else {
+        onPdfError({toString: () => response.error});
+      }
+    }
+
+    function onPdfDataReceived(response) {
+        const button = document.getElementById('unduh-pdf-btn');
+        const statusDiv = document.getElementById('pdf-status');
+        if (response.base64Data) {
+            statusDiv.innerHTML = `<div class="alert alert-success">PDF berhasil dibuat! Unduhan akan dimulai secara otomatis.</div>`;
+            // Panggil fungsi unduhan langsung
+            downloadFromBase64(response.base64Data, response.fileName);
+        } else {
+            onPdfError({toString: () => response.error});
+        }
+        button.disabled = false;
+    }
+
+    function onPdfError(error) {
+        document.getElementById('unduh-pdf-btn').disabled = false;
+        document.getElementById('pdf-status').innerHTML = `<div class="alert alert-danger">Terjadi kesalahan: ${error.toString()}</div>`;
+    }
+
+    function unduhLaporan(emailGuru, namaMapel) {
+        const statusTASelect = document.getElementById('status-tahun-ajaran-select');
+        const taDeskripsi = statusTASelect.options[statusTASelect.selectedIndex].text;
+        alert(`Memulai proses unduhan untuk ${namaMapel} (${taDeskripsi}). Mohon tunggu...`);
+        const dataPdf = {
+            id_sekolah: loggedInUser.id_sekolah,
+            id_tahun_ajaran: statusTASelect.value,
+            nama_mapel: namaMapel,
+            email_guru: emailGuru
+        };
+        google.script.run.withSuccessHandler(onPdfDataReceivedFromDashboard).withFailureHandler(alert).generatePdfAsBase64(dataPdf);
+    }
+    
+    function onPdfDataReceivedFromDashboard(response) {
+        if (response.base64Data) {
+            downloadFromBase64(response.base64Data, response.fileName);
+        } else {
+            alert("Gagal membuat PDF: " + (response.error || "Kesalahan tidak diketahui."));
+        }
+    }
+    
+    // --- (Fungsi-fungsi pengaturan cetak dan utility lainnya tetap sama) ---
+    
     function goToPengaturanCetak() {
         showView('pengaturan-cetak-view');
         document.getElementById('pengaturan-status').innerHTML = '';
-        
         const tempatInput = document.getElementById('tempat-ttd');
         const tanggalInput = document.getElementById('tanggal-ttd');
         const simpanBtn = document.getElementById('simpan-pengaturan-btn');
-
-        // Set loading state
         tempatInput.value = '';
         tempatInput.placeholder = 'Memuat data...';
         tanggalInput.value = '';
         tempatInput.disabled = true;
         tanggalInput.disabled = true;
         simpanBtn.disabled = true;
-        
-        // Fetch fresh data
         google.script.run.withSuccessHandler(onPengaturanLoaded).getPengaturanCetak(loggedInUser.email);
     }
 
     function onPengaturanLoaded(pengaturan) {
         cachedPengaturan = pengaturan;
         localStorage.setItem('cachedPengaturan', JSON.stringify(pengaturan));
-
         const tempatInput = document.getElementById('tempat-ttd');
         const tanggalInput = document.getElementById('tanggal-ttd');
         const simpanBtn = document.getElementById('simpan-pengaturan-btn');
-
-        // Restore placeholder and enable fields
         tempatInput.placeholder = 'Contoh: Butung';
         tempatInput.disabled = false;
         tanggalInput.disabled = false;
         simpanBtn.disabled = false;
-
-        // Populate with the fresh data
         tempatInput.value = pengaturan.tempat || '';
         tanggalInput.value = pengaturan.tanggal || '';
     }
@@ -628,11 +735,7 @@
         const button = document.getElementById('simpan-pengaturan-btn');
         statusDiv.innerHTML = `<div class="alert alert-info">Menyimpan...</div>`;
         button.disabled = true;
-        const pengaturan = { 
-            email: loggedInUser.email,
-            tempat: tempat, 
-            tanggal: tanggal 
-        };
+        const pengaturan = { email: loggedInUser.email, tempat: tempat, tanggal: tanggal };
         google.script.run.withSuccessHandler(onPengaturanSaved).withFailureHandler(onPengaturanSaveFailed).savePengaturanCetak(pengaturan);
     }
 
@@ -641,10 +744,7 @@
         document.getElementById('simpan-pengaturan-btn').disabled = false;
         if(response.success) {
             statusDiv.innerHTML = `<div class="alert alert-success">Pengaturan berhasil disimpan.</div>`;
-            cachedPengaturan = {
-                tempat: document.getElementById('tempat-ttd').value,
-                tanggal: document.getElementById('tanggal-ttd').value
-            };
+            cachedPengaturan = { tempat: document.getElementById('tempat-ttd').value, tanggal: document.getElementById('tanggal-ttd').value };
             localStorage.setItem('cachedPengaturan', JSON.stringify(cachedPengaturan));
         } else {
             statusDiv.innerHTML = `<div class="alert alert-danger">Gagal menyimpan: ${response.error}</div>`;
@@ -657,7 +757,6 @@
         statusDiv.innerHTML = `<div class="alert alert-danger">Terjadi kesalahan: ${error.toString()}</div>`;
     }
     
-    // --- UTILITY FUNCTIONS ---
     function logout() {
         localStorage.clear();
         forceLogout();
@@ -677,6 +776,7 @@
             loginButton.innerText = 'Login';
         }
     }
+
 </script>
 </body>
 </html>
