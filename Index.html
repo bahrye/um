@@ -309,6 +309,7 @@
     let cachedMapel = null;
     let cachedPengaturan = null;
     let statusTimer;
+    let cachedMapelWithStatus = null; 
 
     document.addEventListener("DOMContentLoaded", checkSession);
 
@@ -329,14 +330,19 @@
         const token = localStorage.getItem('authToken');
         if (token) {
             const localUser = localStorage.getItem('loggedInUser');
-            const localMapel = localStorage.getItem('cachedMapel');
+            const localMapelStatus = localStorage.getItem('cachedMapelWithStatus');
             const localTA = localStorage.getItem('cachedTahunAjaran');
             const localPengaturan = localStorage.getItem('cachedPengaturan');
-            if (localUser && localMapel && localTA) {
+            
+            if (localUser && localMapelStatus && localTA) {
                 loggedInUser = JSON.parse(localUser);
-                cachedMapel = JSON.parse(localMapel);
+                cachedMapelWithStatus = JSON.parse(localMapelStatus);
                 cachedTahunAjaran = JSON.parse(localTA);
                 cachedPengaturan = localPengaturan ? JSON.parse(localPengaturan) : {};
+                cachedMapel = Object.keys(cachedMapelWithStatus).reduce((acc, taId) => {
+                    acc[taId] = cachedMapelWithStatus[taId].map(item => item.mapel);
+                    return acc;
+                }, {});
                 google.script.run.withSuccessHandler(onTokenVerified).verifyToken(token);
                 showDashboard();
             } else {
@@ -351,7 +357,7 @@
         if (user) {
             loggedInUser = user;
             localStorage.setItem('loggedInUser', JSON.stringify(user));
-            loadInitialData(false); 
+            loadInitialData(false);
         } else {
             forceLogout();
         }
@@ -386,17 +392,31 @@
     }
     
     function loadInitialData(showDashOnComplete) {
-        let loadCount = 2;
-        const checkDone = () => {
-            loadCount--;
-            if (loadCount === 0) {
-                localStorage.setItem('cachedMapel', JSON.stringify(cachedMapel));
+        google.script.run
+            .withSuccessHandler(data => {
+                if (data.error) {
+                    console.error("Gagal memuat data awal:", data.error);
+                    forceLogout();
+                    return;
+                }
+                cachedTahunAjaran = data.tahunAjaran;
+                cachedMapelWithStatus = data.mapelWithStatus;
+                cachedMapel = Object.keys(data.mapelWithStatus).reduce((acc, taId) => {
+                    acc[taId] = data.mapelWithStatus[taId].map(item => item.mapel);
+                    return acc;
+                }, {});
                 localStorage.setItem('cachedTahunAjaran', JSON.stringify(cachedTahunAjaran));
-                if (showDashOnComplete) showDashboard();
-            }
-        };
-        google.script.run.withSuccessHandler(data => { cachedMapel = data; checkDone(); }).getAllMapelForGuru(loggedInUser.email);
-        google.script.run.withSuccessHandler(data => { cachedTahunAjaran = data; checkDone(); }).getTahunAjaran();
+                localStorage.setItem('cachedMapelWithStatus', JSON.stringify(cachedMapelWithStatus));
+                localStorage.setItem('cachedMapel', JSON.stringify(cachedMapel));
+                if (showDashOnComplete) {
+                    showDashboard();
+                }
+            })
+            .withFailureHandler(error => {
+                console.error("Gagal memuat data awal:", error);
+                forceLogout();
+            })
+            .getInitialDataForGuru(loggedInUser.email);
     }
 
     function showView(viewId, displayType = 'block') {
@@ -500,9 +520,6 @@
         document.getElementById('tampilkan-siswa-btn').disabled = !(taId && mapel);
     }
 
-    /**
-     * ===== MODIFIKASI: Menambahkan email guru saat memanggil backend =====
-     */
     function loadNilaiTable() {
         const idTahunAjaran = document.getElementById('tahun-ajaran-select-input').value;
         const mapel = document.getElementById('mapel-select-input').value;
@@ -514,12 +531,9 @@
         document.getElementById('status').innerHTML = '';
         google.script.run
             .withSuccessHandler(onDataLoaded)
-            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, idTahunAjaran, thisRequestID, loggedInUser.email); // email ditambahkan
+            .getSiswaAndNilai(loggedInUser.id_sekolah, mapel, idTahunAjaran, thisRequestID, loggedInUser.email);
     }
 
-    /**
-     * ===== MODIFIKASI: Mengunci form jika nilai sudah terkirim =====
-     */
     function onDataLoaded(response) {
         if (response.requestID !== currentMapelRequestID) return;
         const tableBody = document.getElementById('nilai-table-body');
@@ -546,7 +560,6 @@
         document.getElementById('loading-spinner-table').style.display = 'none';
         document.getElementById('table-card-container').style.display = 'block';
 
-        // Logika untuk mengunci form
         const submitButton = document.getElementById('submit-button');
         const statusDiv = document.getElementById('status');
         const allInputs = document.querySelectorAll('#nilai-table-body .nilai-input');
@@ -556,9 +569,8 @@
             allInputs.forEach(input => {
                 input.disabled = true;
             });
-            // Gunakan showStatus agar pesan tidak permanen jika user ganti mapel
             const msg = `<strong>Nilai Terkunci.</strong> Data nilai untuk mata pelajaran ini sudah dikirim. Untuk mengubah, silakan batalkan status pengiriman di menu "Kirim dan Cetak Nilai UM" terlebih dahulu.`;
-            showStatus('status', msg, 'warning', 15000); // Tampilkan selama 15 detik
+            showStatus('status', msg, 'warning', 15000); 
         } else {
             submitButton.disabled = false;
             allInputs.forEach(input => {
@@ -623,23 +635,22 @@
         document.getElementById('loading-spinner-cetak').style.display = 'none';
     }
     
+    /**
+     * ===== MODIFIKASI: Menambahkan parameter refreshOnly =====
+     * Jika refreshOnly bernilai true, kontainer preview tidak akan disembunyikan.
+     * Ini digunakan saat memperbarui status setelah kirim atau batal kirim.
+     */
     function loadMapelForCetak(refreshOnly = false) {
         const taId = document.getElementById('tahun-ajaran-select-cetak').value;
         const mapelSelect = document.getElementById('mapel-select-cetak');
         
         if (!refreshOnly) {
-            mapelSelect.innerHTML = '<option value="" selected disabled>Memuat mapel...</option>';
             document.getElementById('preview-container').style.display = 'none';
         }
-
-        if (taId) {
-            google.script.run
-                .withSuccessHandler(populateMapelForCetak)
-                .withFailureHandler(onMapelLoadError)
-                .getMapelWithStatusForGuru(loggedInUser.email, taId);
-        } else {
-            mapelSelect.innerHTML = '<option value="" selected disabled>Pilih Tahun Ajaran</option>';
-        }
+        
+        const mapelData = taId && cachedMapelWithStatus[taId] ? cachedMapelWithStatus[taId] : [];
+        
+        populateMapelForCetak(mapelData);
         updatePreviewButtonState();
     }
     
@@ -648,11 +659,6 @@
         const selectedValue = mapelSelect.value;
         mapelSelect.innerHTML = ''; 
         
-        if (mapelData && mapelData.error) {
-            onMapelLoadError(mapelData.error);
-            return;
-        }
-
         if (mapelData && mapelData.length > 0) {
             mapelSelect.innerHTML = '<option value="" selected disabled>-- Pilih Mapel --</option>';
             mapelData.forEach(item => {
@@ -667,17 +673,12 @@
                 }
                 mapelSelect.add(option);
             });
-            mapelSelect.value = selectedValue;
+            if (Array.from(mapelSelect.options).some(opt => opt.value === selectedValue)) {
+                mapelSelect.value = selectedValue;
+            }
         } else {
             mapelSelect.innerHTML = '<option value="" selected disabled>Mapel tidak ditemukan</option>';
         }
-        updatePreviewButtonState();
-    }
-
-    function onMapelLoadError(error) {
-        const mapelSelect = document.getElementById('mapel-select-cetak');
-        mapelSelect.innerHTML = '<option value="" selected disabled>Gagal memuat</option>';
-        console.error("Gagal memuat mapel:", error);
     }
 
     function updatePreviewButtonState() {
@@ -785,7 +786,16 @@
         document.getElementById('batal-kirim-btn').disabled = false;
         document.getElementById('unduh-pdf-btn').disabled = false;
         
-        loadMapelForCetak(true);
+        const taId = document.getElementById('tahun-ajaran-select-cetak').value;
+        const mapel = document.getElementById('mapel-select-cetak').value;
+        if (cachedMapelWithStatus && cachedMapelWithStatus[taId]) {
+            const mapelEntry = cachedMapelWithStatus[taId].find(m => m.mapel === mapel);
+            if (mapelEntry) {
+                mapelEntry.status = true;
+                localStorage.setItem('cachedMapelWithStatus', JSON.stringify(cachedMapelWithStatus));
+            }
+        }
+        loadMapelForCetak(true); // MODIFIKASI: Panggil dengan true
         fetchDashboardStatus();
 
       } else {
@@ -814,7 +824,16 @@
             document.getElementById('unduh-pdf-btn').style.display = 'none';
             showStatus('pdf-status', 'Status pengiriman telah dibatalkan.', 'warning');
             
-            loadMapelForCetak(true);
+            const taId = document.getElementById('tahun-ajaran-select-cetak').value;
+            const mapel = document.getElementById('mapel-select-cetak').value;
+            if (cachedMapelWithStatus && cachedMapelWithStatus[taId]) {
+                const mapelEntry = cachedMapelWithStatus[taId].find(m => m.mapel === mapel);
+                if (mapelEntry) {
+                    mapelEntry.status = false;
+                    localStorage.setItem('cachedMapelWithStatus', JSON.stringify(cachedMapelWithStatus));
+                }
+            }
+            loadMapelForCetak(true); // MODIFIKASI: Panggil dengan true
             fetchDashboardStatus();
         } else {
             onBatalError({toString: () => response.error});
@@ -951,6 +970,7 @@
         loggedInUser = null;
         cachedTahunAjaran = null;
         cachedMapel = null; 
+        cachedMapelWithStatus = null;
         cachedPengaturan = null;
         showView('login-view', 'flex');
         document.getElementById('email').value = '';
