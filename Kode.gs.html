@@ -1,21 +1,19 @@
 /**
  * @fileoverview Backend untuk Aplikasi Input Nilai Madrasah.
  * Mengelola otentikasi, pengambilan data, dan penyimpanan nilai.
- * * @version 2.0
- * @author Peningkatan Performa oleh Gemini
+ * @version 2.1
+ * @author Peningkatan Performa oleh Gemini, Fitur Kunci oleh Gemini
  * @description
- * Versi ini mengatasi masalah performa dengan memisahkan database nilai
- * ke dalam sheet yang berbeda untuk setiap tahun ajaran secara otomatis.
- * Contoh: 'db_nilai_2023-2024'. Hal ini secara drastis mengurangi
- * jumlah data yang diproses pada setiap operasi, membuat aplikasi tetap
- * cepat dan responsif bahkan dengan data puluhan ribu.
+ * Versi ini menambahkan fitur untuk mengunci Tahun Ajaran.
+ * Jika sebuah tahun ajaran ditandai sebagai 'terkunci' di sheet 'db_tahun_ajaran',
+ * maka semua fungsi input, simpan, kirim, dan batal kirim nilai untuk
+ * tahun ajaran tersebut akan dinonaktifkan secara otomatis untuk mencegah perubahan data.
  */
 
 // Konstanta Global untuk Akses Cepat ke Spreadsheet
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const GURU_SHEET = SS.getSheetByName('db_guru');
 const SISWA_SHEET = SS.getSheetByName('db_siswa');
-// const NILAI_SHEET = SS.getSheetByName('db_nilai'); // DIHAPUS: Tidak lagi digunakan karena dinamis
 const TAHUN_AJARAN_SHEET = SS.getSheetByName('db_tahun_ajaran');
 const ENROLLMENT_SHEET = SS.getSheetByName('db_enrollment');
 const MAPEL_SHEET = SS.getSheetByName('db_mapel');
@@ -27,18 +25,33 @@ const STATUS_KIRIM_SHEET = SS.getSheetByName('db_status_kirim');
 const sheetCache = {};
 
 /**
+ * ===== BARU: Fungsi Helper untuk Mengecek Status Kunci Tahun Ajaran =====
+ * Mengecek apakah suatu tahun ajaran sudah dikunci atau belum.
+ * @param {string} id_tahun_ajaran - ID unik dari tahun ajaran.
+ * @returns {boolean} True jika terkunci, false jika tidak.
+ */
+function isTahunAjaranLocked(id_tahun_ajaran) {
+  const taData = TAHUN_AJARAN_SHEET.getDataRange().getValues();
+  for (let i = 1; i < taData.length; i++) {
+    // taData[i][0] adalah id_tahun_ajaran, taData[i][2] adalah kolom status_kunci
+    if (taData[i][0] == id_tahun_ajaran && taData[i][2] === true) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * ===== BARU: Fungsi Helper untuk Mengelola Sheet Nilai per Tahun Ajaran =====
  * Membuat atau mendapatkan sheet untuk menyimpan nilai berdasarkan ID tahun ajaran.
  * @param {string} id_tahun_ajaran - ID unik dari tahun ajaran.
  * @returns {Sheet} Objek Sheet dari Google Spreadsheet yang sesuai.
  */
 function getNilaiSheetByTahunAjaran(id_tahun_ajaran) {
-  // Cek di cache terlebih dahulu untuk efisiensi
   if (sheetCache[id_tahun_ajaran]) {
     return sheetCache[id_tahun_ajaran];
   }
 
-  // 1. Cari deskripsi tahun ajaran (misal: "2023/2024")
   const taData = TAHUN_AJARAN_SHEET.getDataRange().getValues();
   let deskripsi = '';
   for (let i = 1; i < taData.length; i++) {
@@ -52,13 +65,9 @@ function getNilaiSheetByTahunAjaran(id_tahun_ajaran) {
     throw new Error(`Tahun Ajaran dengan ID "${id_tahun_ajaran}" tidak ditemukan.`);
   }
 
-  // 2. Buat nama sheet yang valid (mengganti "/" dengan "-")
   const sheetName = `db_nilai_${deskripsi.replace('/', '-')}`;
-
-  // 3. Cek apakah sheet sudah ada atau belum
   let sheet = SS.getSheetByName(sheetName);
 
-  // 4. Jika belum ada, buat sheet baru dan tambahkan header
   if (!sheet) {
     sheet = SS.insertSheet(sheetName);
     const headers = [
@@ -66,21 +75,14 @@ function getNilaiSheetByTahunAjaran(id_tahun_ajaran) {
       "timestamp", "id_tahun_ajaran"
     ];
     sheet.appendRow(headers);
-    // Tambahkan proteksi atau styling jika diperlukan
     sheet.getRange("A1:G1").setFontWeight("bold");
     sheet.setFrozenRows(1);
   }
 
-  // Simpan sheet ke cache dan kembalikan
   sheetCache[id_tahun_ajaran] = sheet;
   return sheet;
 }
 
-
-/**
- * Menampilkan antarmuka pengguna (UI) aplikasi web.
- * @returns {HtmlOutput} Halaman HTML aplikasi.
- */
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Input Nilai Ujian Madrasah')
@@ -89,19 +91,21 @@ function doGet() {
 }
 
 /**
- * ===== BARU: Fungsi efisien untuk mengambil semua data awal guru =====
- * Menggabungkan pengambilan tahun ajaran dan mapel beserta statusnya
- * untuk mengurangi panggilan ke server dan mempercepat loading awal.
+ * ===== DIPERBARUI: Mengambil status kunci tahun ajaran =====
+ * Menggabungkan pengambilan tahun ajaran (beserta status kuncinya) dan mapel
+ * untuk mempercepat loading awal.
  * @param {string} email - Email guru yang login.
  * @returns {Object} Objek berisi data tahun ajaran dan mapel dengan status.
  */
 function getInitialDataForGuru(email) {
   try {
-    // 1. Ambil semua Tahun Ajaran
     const taData = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1);
-    const allTahunAjaran = taData.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] })).reverse();
+    const allTahunAjaran = taData.map(row => ({
+      id_tahun_ajaran: row[0],
+      deskripsi: row[1],
+      is_locked: row[2] === true // Kolom C (index 2) adalah status_kunci
+    })).reverse();
 
-    // 2. Ambil semua Mapel untuk guru tersebut
     const mapelData = MAPEL_SHEET.getDataRange().getValues().slice(1);
     const guruMapelList = mapelData
       .filter(row => row[0].toLowerCase() === email.toLowerCase())
@@ -111,17 +115,15 @@ function getInitialDataForGuru(email) {
       return { tahunAjaran: allTahunAjaran, mapelWithStatus: {} };
     }
 
-    // 3. Ambil semua status kirim untuk guru tersebut
     const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
     const sentStatusSet = statusData
       .filter(row => row[2].toLowerCase() === email.toLowerCase())
       .reduce((set, row) => {
-        const key = `${row[1]}_${row[3]}`; // key: id_tahun_ajaran + mapel
+        const key = `${row[1]}_${row[3]}`;
         set.add(key);
         return set;
       }, new Set());
 
-    // 4. Gabungkan Mapel dan Status, kelompokkan berdasarkan id_tahun_ajaran
     const mapelWithStatus = guruMapelList.reduce((acc, item) => {
       const taId = item.id_tahun_ajaran;
       if (!acc[taId]) {
@@ -135,7 +137,6 @@ function getInitialDataForGuru(email) {
       return acc;
     }, {});
 
-    // Urutkan mapel berdasarkan abjad di setiap tahun ajaran
     for (const taId in mapelWithStatus) {
         mapelWithStatus[taId].sort((a, b) => a.mapel.localeCompare(b.mapel));
     }
@@ -149,7 +150,6 @@ function getInitialDataForGuru(email) {
     return { error: e.toString() };
   }
 }
-
 
 function userLogin(credentials) {
   if (!credentials || !credentials.email || !credentials.password) return null;
@@ -175,85 +175,72 @@ function verifyToken(token) {
   return null;
 }
 
-function getAllMapelForGuru(email) {
-  if (!email) return {};
-  const mapelData = MAPEL_SHEET.getDataRange().getValues().slice(1);
-  return mapelData
-    .filter(row => row[0].toLowerCase() === email.toLowerCase())
-    .reduce((acc, row) => {
-      const namaMapel = row[1];
-      const idTahunAjaran = row[2];
-      if (!acc[idTahunAjaran]) acc[idTahunAjaran] = [];
-      if (!acc[idTahunAjaran].includes(namaMapel)) acc[idTahunAjaran].push(namaMapel);
-      return acc;
-    }, {});
-}
-
 function getTahunAjaran() {
   const data = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1);
-  const mappedData = data.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] }));
-  return mappedData.reverse();
+  return data.map(row => ({
+    id_tahun_ajaran: row[0],
+    deskripsi: row[1],
+    is_locked: row[2] === true
+  })).reverse();
 }
 
 /**
- * ===== DIPERBARUI: Menggunakan sheet nilai yang dinamis =====
- * Mengambil data siswa dan nilai dari sheet yang spesifik sesuai tahun ajaran.
+ * ===== DIPERBARUI: Mengirim status kunci tahun ajaran ke frontend =====
+ * Mengambil data siswa dan nilai, serta mengecek apakah tahun ajaran terkunci.
  */
 function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID, email_guru) {
-  // === PERUBAHAN UTAMA 1 ===
-  // Dapatkan sheet nilai yang relevan, bukan sheet 'db_nilai' yang besar.
-  const NILAI_SHEET = getNilaiSheetByTahunAjaran(id_tahun_ajaran);
-  // ==========================
+  const isLocked = isTahunAjaranLocked(id_tahun_ajaran);
 
+  const NILAI_SHEET = getNilaiSheetByTahunAjaran(id_tahun_ajaran);
   const enrollmentData = ENROLLMENT_SHEET.getDataRange().getValues().slice(1);
   const enrolledSiswa = enrollmentData
     .filter(row => String(row[2]).trim() == String(id_sekolah).trim() && String(row[3]).trim() == String(id_tahun_ajaran).trim())
     .map(row => ({ nomor_ujian: row[1], ruang_ujian: row[4] || 'N/A' }));
-  if (enrolledSiswa.length === 0) return { siswaData: [], requestID: requestID, isSudahKirim: false };
+
+  if (enrolledSiswa.length === 0) {
+    return { siswaData: [], requestID: requestID, isSudahKirim: false, isTahunAjaranLocked: isLocked };
+  }
   
   const masterSiswaMap = SISWA_SHEET.getDataRange().getValues().slice(1)
     .reduce((map, row) => { map[row[0]] = row[1]; return map; }, {});
     
   const nilaiData = NILAI_SHEET.getDataRange().getValues().slice(1);
   const nilaiMap = nilaiData
-    .filter(row => row[2] == nama_mapel) // id_tahun_ajaran tidak perlu dicek lagi karena sudah beda sheet
+    .filter(row => row[2] == nama_mapel)
     .reduce((map, row) => { map[row[1]] = row[3]; return map; }, {});
 
-  const result = enrolledSiswa.map(item => {
-    const nilai = nilaiMap.hasOwnProperty(item.nomor_ujian) ? nilaiMap[item.nomor_ujian] : '';
-    return {
-      nomor_ujian: item.nomor_ujian,
-      ruang_ujian: item.ruang_ujian,
-      nama: masterSiswaMap[item.nomor_ujian] || 'Nama Tdk Ditemukan',
-      nilai: nilai
-    };
-  }).sort((a, b) => a.nama.localeCompare(b.nama));
+  const result = enrolledSiswa.map(item => ({
+    nomor_ujian: item.nomor_ujian,
+    ruang_ujian: item.ruang_ujian,
+    nama: masterSiswaMap[item.nomor_ujian] || 'Nama Tdk Ditemukan',
+    nilai: nilaiMap.hasOwnProperty(item.nomor_ujian) ? nilaiMap[item.nomor_ujian] : ''
+  })).sort((a, b) => a.nama.localeCompare(b.nama));
   
   const keyCek = `${id_tahun_ajaran}_${email_guru.toLowerCase()}_${nama_mapel}`;
   const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
   const sentStatusSet = statusData.reduce((set, row) => { set.add(row[0]); return set; }, new Set());
   const isSudahKirim = sentStatusSet.has(keyCek);
 
-  return { siswaData: result, requestID: requestID, isSudahKirim: isSudahKirim };
+  return { siswaData: result, requestID: requestID, isSudahKirim: isSudahKirim, isTahunAjaranLocked: isLocked };
 }
 
 /**
- * ===== DIPERBARUI: Menggunakan sheet nilai yang dinamis =====
- * Menyimpan atau memperbarui data nilai ke sheet yang spesifik sesuai tahun ajaran.
+ * ===== DIPERBARUI: Menambahkan proteksi untuk tahun ajaran yang terkunci =====
+ * Menyimpan atau memperbarui nilai hanya jika tahun ajaran tidak terkunci.
  */
 function simpanAtauUpdateNilai(dataNilai) {
   if (!dataNilai || dataNilai.length === 0) return "Error: Tidak ada data untuk diproses.";
-  const { mapel, emailGuru, id_tahun_ajaran } = dataNilai[0];
+  const { id_tahun_ajaran } = dataNilai[0];
 
-  // === PERUBAHAN UTAMA 2 ===
-  // Dapatkan sheet nilai yang relevan untuk ditulis.
+  if (isTahunAjaranLocked(id_tahun_ajaran)) {
+    return "Error: Gagal menyimpan. Tahun Ajaran ini telah dikunci dan tidak dapat diubah lagi.";
+  }
+
+  const { mapel, emailGuru } = dataNilai[0];
   const NILAI_SHEET = getNilaiSheetByTahunAjaran(id_tahun_ajaran);
-  // ==========================
-
   const allNilai = NILAI_SHEET.getDataRange().getValues();
   const existingDataMap = allNilai.reduce((map, row, index) => {
-    if (index > 0) { 
-      // Kunci sekarang hanya perlu nomor ujian dan mapel, karena tahun ajaran sudah pasti sama.
+    if (index > 0) {
       const key = `${row[1]}_${row[2]}`; 
       map[key] = index; 
     }
@@ -267,19 +254,14 @@ function simpanAtauUpdateNilai(dataNilai) {
     const rowIndex = existingDataMap[key];
     const nilaiIsFilled = item.nilai !== '' && item.nilai !== null;
 
-    if (rowIndex) { // Data sudah ada, update
+    if (rowIndex) {
       NILAI_SHEET.getRange(rowIndex + 1, 4).setValue(item.nilai);
       NILAI_SHEET.getRange(rowIndex + 1, 6).setValue(new Date());
       nilaiIsFilled ? updatedCount++ : deletedCount++;
-    } else if (nilaiIsFilled) { // Data belum ada dan nilai diisi, tambahkan baris baru
+    } else if (nilaiIsFilled) {
       NILAI_SHEET.appendRow([
-        new Date().getTime(), 
-        item.nomorUjian, 
-        mapel, 
-        item.nilai, 
-        emailGuru, 
-        new Date(), 
-        id_tahun_ajaran
+        new Date().getTime(), item.nomorUjian, mapel, item.nilai, 
+        emailGuru, new Date(), id_tahun_ajaran
       ]);
       insertedCount++;
     }
@@ -289,13 +271,17 @@ function simpanAtauUpdateNilai(dataNilai) {
   return `Sukses! ${totalProcessed} data diproses (${insertedCount} baru, ${updatedCount} diperbarui, ${deletedCount} dikosongkan).`;
 }
 
-// ===================================================================================
-// TIDAK ADA PERUBAHAN PADA FUNGSI-FUNGSI DI BAWAH INI
-// ===================================================================================
-
+/**
+ * ===== DIPERBARUI: Menambahkan proteksi untuk tahun ajaran yang terkunci =====
+ */
 function kirimStatusNilai(data) {
   try {
     const { id_tahun_ajaran, email_guru, nama_mapel } = data;
+
+    if (isTahunAjaranLocked(id_tahun_ajaran)) {
+      return { success: false, error: "Gagal mengirim. Tahun Ajaran ini telah dikunci." };
+    }
+
     const key = `${id_tahun_ajaran}_${email_guru.toLowerCase()}_${nama_mapel}`;
     const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues();
     const existingKeys = statusData.map(row => row[0]);
@@ -309,11 +295,19 @@ function kirimStatusNilai(data) {
   }
 }
 
+/**
+ * ===== DIPERBARUI: Menambahkan proteksi untuk tahun ajaran yang terkunci =====
+ */
 function batalKirimStatusNilai(data) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     const { id_tahun_ajaran, email_guru, nama_mapel } = data;
+    
+    if (isTahunAjaranLocked(id_tahun_ajaran)) {
+      return { success: false, error: "Gagal membatalkan. Tahun Ajaran ini telah dikunci." };
+    }
+
     const keyToFind = `${id_tahun_ajaran}_${email_guru.toLowerCase()}_${nama_mapel}`;
     const range = STATUS_KIRIM_SHEET.getDataRange();
     const values = range.getValues();
@@ -359,8 +353,12 @@ function getDashboardStatus(id_sekolah, id_tahun_ajaran) {
   }
 }
 
+/**
+ * ===== DIPERBARUI: Mengirim status kunci tahun ajaran ke frontend =====
+ */
 function getCetakData(req) {
   try {
+    const isLocked = isTahunAjaranLocked(req.id_tahun_ajaran);
     const nilaiSiswaData = getSiswaAndNilai(req.id_sekolah, req.nama_mapel, req.id_tahun_ajaran, 0, req.email_guru).siswaData;
     const nilaiSiswa = nilaiSiswaData.map(s => ({ 
       ...s, 
@@ -390,7 +388,8 @@ function getCetakData(req) {
       pengaturan: pengaturan, 
       deskripsi_ta: req.deskripsi_ta, 
       nama_mapel: req.nama_mapel,
-      isSudahKirim: isSudahKirim
+      isSudahKirim: isSudahKirim,
+      isTahunAjaranLocked: isLocked // Tambahkan status kunci
     };
   } catch (e) {
     return { error: e.toString() };
