@@ -313,6 +313,7 @@
     
     let loggedInUser = null;
     let currentMapelRequestID = 0;
+    let currentStatusRequestID = 0; // <-- [PERBAIKAN] ID untuk request status
     let cachedTahunAjaran = null;
     let cachedMapel = null;
     let cachedPengaturan = null;
@@ -465,17 +466,35 @@
     }
 
     function fetchDashboardStatus() {
+        // <-- [PERBAIKAN] Logika baru untuk mencegah race condition
+        currentStatusRequestID++;
+        const thisRequestID = currentStatusRequestID;
+
         const selectedTahunAjaranId = document.getElementById('status-tahun-ajaran-select').value;
         document.getElementById('status-table-container').style.display = 'none';
         document.getElementById('status-table-error').style.display = 'none';
         document.getElementById('loading-spinner-status').style.display = 'block';
+
         if (!selectedTahunAjaranId) {
              populateDashboardStatus([]);
              return;
         }
+        
+        const successCallback = (statusData) => {
+            if (thisRequestID === currentStatusRequestID) {
+                populateDashboardStatus(statusData);
+            }
+        };
+
+        const failureCallback = (error) => {
+            if (thisRequestID === currentStatusRequestID) {
+                onStatusLoadFailure(error);
+            }
+        };
+
         google.script.run
-            .withSuccessHandler(populateDashboardStatus)
-            .withFailureHandler(onStatusLoadFailure)
+            .withSuccessHandler(successCallback)
+            .withFailureHandler(failureCallback)
             .getDashboardStatus(loggedInUser.id_sekolah, selectedTahunAjaranId);
     }
 
@@ -632,7 +651,9 @@
           id_tahun_ajaran: document.getElementById('tahun-ajaran-select-input').value
         }));
         button.disabled = true;
-        showStatus('status', `Menyimpan ${dataLengkap.length} data perubahan...`, 'info', 0, true);
+        // <-- [PERBAIKAN] Pesan loading dengan spinner
+        const msg = `<div class="d-flex align-items-center"><div class="spinner-border spinner-border-sm mr-2" role="status"></div><span>Menyimpan ${dataLengkap.length} data perubahan...</span></div>`;
+        showStatus('status', msg, 'info', 0, true);
         google.script.run.withSuccessHandler(onSaveSuccess).simpanAtauUpdateNilai(dataLengkap);
     }
     
