@@ -1,19 +1,81 @@
 /**
  * @fileoverview Backend untuk Aplikasi Input Nilai Madrasah.
  * Mengelola otentikasi, pengambilan data, dan penyimpanan nilai.
+ * * @version 2.0
+ * @author Peningkatan Performa oleh Gemini
+ * @description
+ * Versi ini mengatasi masalah performa dengan memisahkan database nilai
+ * ke dalam sheet yang berbeda untuk setiap tahun ajaran secara otomatis.
+ * Contoh: 'db_nilai_2023-2024'. Hal ini secara drastis mengurangi
+ * jumlah data yang diproses pada setiap operasi, membuat aplikasi tetap
+ * cepat dan responsif bahkan dengan data puluhan ribu.
  */
 
 // Konstanta Global untuk Akses Cepat ke Spreadsheet
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const GURU_SHEET = SS.getSheetByName('db_guru');
 const SISWA_SHEET = SS.getSheetByName('db_siswa');
-const NILAI_SHEET = SS.getSheetByName('db_nilai');
+// const NILAI_SHEET = SS.getSheetByName('db_nilai'); // DIHAPUS: Tidak lagi digunakan karena dinamis
 const TAHUN_AJARAN_SHEET = SS.getSheetByName('db_tahun_ajaran');
 const ENROLLMENT_SHEET = SS.getSheetByName('db_enrollment');
 const MAPEL_SHEET = SS.getSheetByName('db_mapel');
 const SEKOLAH_SHEET = SS.getSheetByName('db_sekolah');
 const PENGATURAN_CETAK_SHEET = SS.getSheetByName('db_pengaturan_cetak');
 const STATUS_KIRIM_SHEET = SS.getSheetByName('db_status_kirim');
+
+// Cache untuk menyimpan referensi sheet yang sudah diakses agar tidak perlu dicari berulang kali.
+const sheetCache = {};
+
+/**
+ * ===== BARU: Fungsi Helper untuk Mengelola Sheet Nilai per Tahun Ajaran =====
+ * Membuat atau mendapatkan sheet untuk menyimpan nilai berdasarkan ID tahun ajaran.
+ * @param {string} id_tahun_ajaran - ID unik dari tahun ajaran.
+ * @returns {Sheet} Objek Sheet dari Google Spreadsheet yang sesuai.
+ */
+function getNilaiSheetByTahunAjaran(id_tahun_ajaran) {
+  // Cek di cache terlebih dahulu untuk efisiensi
+  if (sheetCache[id_tahun_ajaran]) {
+    return sheetCache[id_tahun_ajaran];
+  }
+
+  // 1. Cari deskripsi tahun ajaran (misal: "2023/2024")
+  const taData = TAHUN_AJARAN_SHEET.getDataRange().getValues();
+  let deskripsi = '';
+  for (let i = 1; i < taData.length; i++) {
+    if (taData[i][0] == id_tahun_ajaran) {
+      deskripsi = taData[i][1];
+      break;
+    }
+  }
+
+  if (!deskripsi) {
+    throw new Error(`Tahun Ajaran dengan ID "${id_tahun_ajaran}" tidak ditemukan.`);
+  }
+
+  // 2. Buat nama sheet yang valid (mengganti "/" dengan "-")
+  const sheetName = `db_nilai_${deskripsi.replace('/', '-')}`;
+
+  // 3. Cek apakah sheet sudah ada atau belum
+  let sheet = SS.getSheetByName(sheetName);
+
+  // 4. Jika belum ada, buat sheet baru dan tambahkan header
+  if (!sheet) {
+    sheet = SS.insertSheet(sheetName);
+    const headers = [
+      "id_nilai", "nomor_ujian", "mapel", "nilai", "email_guru",
+      "timestamp", "id_tahun_ajaran"
+    ];
+    sheet.appendRow(headers);
+    // Tambahkan proteksi atau styling jika diperlukan
+    sheet.getRange("A1:G1").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+
+  // Simpan sheet ke cache dan kembalikan
+  sheetCache[id_tahun_ajaran] = sheet;
+  return sheet;
+}
+
 
 /**
  * Menampilkan antarmuka pengguna (UI) aplikasi web.
@@ -127,19 +189,22 @@ function getAllMapelForGuru(email) {
     }, {});
 }
 
-/**
- * ===== DIHAPUS: Fungsi ini tidak lagi digunakan =====
- * Logika telah dipindahkan ke client-side dan data diambil oleh getInitialDataForGuru.
- * function getMapelWithStatusForGuru(...) { ... }
- */
-
 function getTahunAjaran() {
   const data = TAHUN_AJARAN_SHEET.getDataRange().getValues().slice(1);
   const mappedData = data.map(row => ({ id_tahun_ajaran: row[0], deskripsi: row[1] }));
   return mappedData.reverse();
 }
 
+/**
+ * ===== DIPERBARUI: Menggunakan sheet nilai yang dinamis =====
+ * Mengambil data siswa dan nilai dari sheet yang spesifik sesuai tahun ajaran.
+ */
 function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID, email_guru) {
+  // === PERUBAHAN UTAMA 1 ===
+  // Dapatkan sheet nilai yang relevan, bukan sheet 'db_nilai' yang besar.
+  const NILAI_SHEET = getNilaiSheetByTahunAjaran(id_tahun_ajaran);
+  // ==========================
+
   const enrollmentData = ENROLLMENT_SHEET.getDataRange().getValues().slice(1);
   const enrolledSiswa = enrollmentData
     .filter(row => String(row[2]).trim() == String(id_sekolah).trim() && String(row[3]).trim() == String(id_tahun_ajaran).trim())
@@ -149,8 +214,9 @@ function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID, em
   const masterSiswaMap = SISWA_SHEET.getDataRange().getValues().slice(1)
     .reduce((map, row) => { map[row[0]] = row[1]; return map; }, {});
     
-  const nilaiMap = NILAI_SHEET.getDataRange().getValues().slice(1)
-    .filter(row => row[2] == nama_mapel && row[6] == id_tahun_ajaran)
+  const nilaiData = NILAI_SHEET.getDataRange().getValues().slice(1);
+  const nilaiMap = nilaiData
+    .filter(row => row[2] == nama_mapel) // id_tahun_ajaran tidak perlu dicek lagi karena sudah beda sheet
     .reduce((map, row) => { map[row[1]] = row[3]; return map; }, {});
 
   const result = enrolledSiswa.map(item => {
@@ -171,31 +237,61 @@ function getSiswaAndNilai(id_sekolah, nama_mapel, id_tahun_ajaran, requestID, em
   return { siswaData: result, requestID: requestID, isSudahKirim: isSudahKirim };
 }
 
+/**
+ * ===== DIPERBARUI: Menggunakan sheet nilai yang dinamis =====
+ * Menyimpan atau memperbarui data nilai ke sheet yang spesifik sesuai tahun ajaran.
+ */
 function simpanAtauUpdateNilai(dataNilai) {
   if (!dataNilai || dataNilai.length === 0) return "Error: Tidak ada data untuk diproses.";
-  const allNilai = NILAI_SHEET.getDataRange().getValues();
   const { mapel, emailGuru, id_tahun_ajaran } = dataNilai[0];
+
+  // === PERUBAHAN UTAMA 2 ===
+  // Dapatkan sheet nilai yang relevan untuk ditulis.
+  const NILAI_SHEET = getNilaiSheetByTahunAjaran(id_tahun_ajaran);
+  // ==========================
+
+  const allNilai = NILAI_SHEET.getDataRange().getValues();
   const existingDataMap = allNilai.reduce((map, row, index) => {
-    if (index > 0) { const key = `${row[1]}_${row[2]}_${row[6]}`; map[key] = index; }
+    if (index > 0) { 
+      // Kunci sekarang hanya perlu nomor ujian dan mapel, karena tahun ajaran sudah pasti sama.
+      const key = `${row[1]}_${row[2]}`; 
+      map[key] = index; 
+    }
     return map;
   }, {});
+
   let updatedCount = 0, insertedCount = 0, deletedCount = 0;
+
   dataNilai.forEach(item => {
-    const key = `${item.nomorUjian}_${mapel}_${id_tahun_ajaran}`;
+    const key = `${item.nomorUjian}_${mapel}`;
     const rowIndex = existingDataMap[key];
     const nilaiIsFilled = item.nilai !== '' && item.nilai !== null;
-    if (rowIndex) {
+
+    if (rowIndex) { // Data sudah ada, update
       NILAI_SHEET.getRange(rowIndex + 1, 4).setValue(item.nilai);
       NILAI_SHEET.getRange(rowIndex + 1, 6).setValue(new Date());
       nilaiIsFilled ? updatedCount++ : deletedCount++;
-    } else if (nilaiIsFilled) {
-      NILAI_SHEET.appendRow([new Date().getTime(), item.nomorUjian, mapel, item.nilai, emailGuru, new Date(), id_tahun_ajaran]);
+    } else if (nilaiIsFilled) { // Data belum ada dan nilai diisi, tambahkan baris baru
+      NILAI_SHEET.appendRow([
+        new Date().getTime(), 
+        item.nomorUjian, 
+        mapel, 
+        item.nilai, 
+        emailGuru, 
+        new Date(), 
+        id_tahun_ajaran
+      ]);
       insertedCount++;
     }
   });
+
   const totalProcessed = updatedCount + insertedCount + deletedCount;
   return `Sukses! ${totalProcessed} data diproses (${insertedCount} baru, ${updatedCount} diperbarui, ${deletedCount} dikosongkan).`;
 }
+
+// ===================================================================================
+// TIDAK ADA PERUBAHAN PADA FUNGSI-FUNGSI DI BAWAH INI
+// ===================================================================================
 
 function kirimStatusNilai(data) {
   try {
@@ -435,7 +531,6 @@ function terbilang(n) {
     return (satuan[puluhan] + " Puluh") + (sisa === 0 ? '' : " " + satuan[sisa]);
 }
 
-// Fungsi generateTokensForAllGurus tidak diubah
 function generateTokensForAllGurus() {
   const range = GURU_SHEET.getDataRange();
   const values = range.getValues();
