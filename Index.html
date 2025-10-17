@@ -4,6 +4,8 @@
   <base target="_top">
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
   
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
   <style>
     body { 
       background-color: #f8f9fa; 
@@ -36,6 +38,12 @@
     .modal-backdrop {
         background-color: rgba(0,0,0,0.6);
     }
+    
+    .card-title i {
+        font-size: 2.5rem;
+        margin-bottom: 10px;
+        display: block;
+    }
   </style>
 </head>
 <body>
@@ -66,7 +74,7 @@
               <label for="password">Password</label>
               <input type="password" id="password" class="form-control" required>
             </div>
-            <button id="login-button" type="submit" class="btn btn-primary btn-block">Login</button>
+            <button id="login-button" type="submit" class="btn btn-primary btn-block"><i class="bi bi-box-arrow-in-right"></i> Login</button>
           </form>
         </div>
       </div>
@@ -76,7 +84,7 @@
   <div id="dashboard-view" class="container mt-4 mb-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 id="welcome-message-dash">Selamat Datang!</h4>
-        <button class="btn btn-sm btn-outline-danger" onclick="logout()">Logout</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="logout()"><i class="bi bi-box-arrow-right"></i> Logout</button>
     </div>
     <div class="card mb-4">
         <div class="card-header">
@@ -90,7 +98,7 @@
         <div class="col-md-4 mb-3">
             <div class="card clickable-card h-100" onclick="goToInputNilai()">
                 <div class="card-body">
-                    <h5 class="card-title">Input Nilai UM</h5>
+                    <h5 class="card-title"><i class="bi bi-pencil-square text-primary"></i>Input Nilai UM</h5>
                     <p class="card-text text-muted">Masuk untuk mengisi atau mengubah nilai siswa berdasarkan tahun ajaran.</p>
                 </div>
             </div>
@@ -98,7 +106,7 @@
         <div class="col-md-4 mb-3">
             <div class="card clickable-card h-100" onclick="goToCetakNilai()">
                 <div class="card-body">
-                    <h5 class="card-title">Kirim dan Cetak Nilai UM</h5>
+                    <h5 class="card-title"><i class="bi bi-printer text-info"></i>Kirim dan Cetak Nilai UM</h5>
                     <p class="card-text text-muted">Pilih tahun ajaran dan mapel untuk mencetak laporan nilai akhir.</p>
                 </div>
             </div>
@@ -106,7 +114,7 @@
         <div class="col-md-4 mb-3">
             <div class="card clickable-card h-100" onclick="goToPengaturanCetak()">
                 <div class="card-body">
-                    <h5 class="card-title">Pengaturan Cetak</h5>
+                    <h5 class="card-title"><i class="bi bi-gear text-secondary"></i>Pengaturan Cetak</h5>
                     <p class="card-text text-muted">Atur informasi tempat dan tanggal untuk tanda tangan pada laporan.</p>
                 </div>
             </div>
@@ -165,7 +173,7 @@
   <div id="input-nilai-view" class="container mt-4 mb-4">
     <div class="d-flex justify-content-between align-items-center">
         <h4>Input Nilai Ujian Madrasah</h4>
-        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
+        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()"><i class="bi bi-arrow-left-circle"></i> Kembali ke Dasbor</button>
     </div>
     <hr>
     <div class="card">
@@ -180,7 +188,7 @@
                     <select id="mapel-select-input" class="form-control" onchange="updateTampilkanSiswaButtonState()"></select>
                 </div>
             </div>
-            <button id="tampilkan-siswa-btn" class="btn btn-primary" onclick="loadNilaiTable()" disabled>Tampilkan Siswa</button>
+            <button id="tampilkan-siswa-btn" class="btn btn-primary" onclick="loadNilaiTable()" disabled><i class="bi bi-person-lines-fill"></i> Tampilkan Siswa</button>
         </div>
     </div>
     <div class="card mt-4" id="table-card-container" style="display: none;">
@@ -199,7 +207,7 @@
               <tbody id="nilai-table-body"></tbody>
             </table>
           </div>
-          <button id="submit-button" class="btn btn-success mt-3" onclick="submitSemuaNilai()">Simpan Semua Nilai</button>
+          <button id="submit-button" class="btn btn-success mt-3" onclick="submitSemuaNilai()"><i class="bi bi-save"></i> Simpan Semua Nilai</button>
           <div id="status" class="mt-3"></div>
         </div>
       </div>
@@ -213,7 +221,7 @@
   <div id="cetak-nilai-view" class="container mt-4 mb-4">
     <div class="d-flex justify-content-between align-items-center">
         <h4>Kirim & Cetak Nilai Ujian Madrasah</h4>
-        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
+        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()"><i class="bi bi-arrow-left-circle"></i> Kembali ke Dasbor</button>
     </div>
     <hr>
     <div class="card">
@@ -228,7 +236,7 @@
                     <select id="mapel-select-cetak" class="form-control" onchange="updatePreviewButtonState()"></select>
                 </div>
             </div>
-            <button id="tampilkan-preview-btn" class="btn btn-info" onclick="previewCetakNilai()" disabled>Tampilkan Preview</button>
+            <button id="tampilkan-preview-btn" class="btn btn-info" onclick="previewCetakNilai()" disabled><i class="bi bi-eye"></i> Tampilkan Preview</button>
             <hr>
             <div id="preview-container" class="mt-3" style="display:none;">
                 <div class="text-center mb-4">
@@ -264,9 +272,9 @@
                 </div>
                 <hr>
                 <div id="pdf-action-container">
-                    <button id="kirim-btn" class="btn btn-success" onclick="kirimStatus()">Kirim Status & Siapkan PDF</button>
-                    <button id="batal-kirim-btn" class="btn btn-warning" style="display: none;" onclick="batalKirim()">Batal Kirim</button>
-                    <button id="unduh-pdf-btn" class="btn btn-primary" style="display: none;" onclick="unduhPdf()">Unduh PDF</button>
+                    <button id="kirim-btn" class="btn btn-success" onclick="kirimStatus()"><i class="bi bi-send-check"></i> Kirim Status & Siapkan PDF</button>
+                    <button id="batal-kirim-btn" class="btn btn-warning" style="display: none;" onclick="batalKirim()"><i class="bi bi-x-circle"></i> Batal Kirim</button>
+                    <button id="unduh-pdf-btn" class="btn btn-primary" style="display: none;" onclick="unduhPdf()"><i class="bi bi-download"></i> Unduh PDF</button>
                 </div>
                 <div id="pdf-status" class="mt-2"></div>
             </div>
@@ -281,7 +289,7 @@
   <div id="pengaturan-cetak-view" class="container mt-4 mb-4">
     <div class="d-flex justify-content-between align-items-center">
         <h4>Pengaturan Dokumen Cetak</h4>
-        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()">Kembali ke Dasbor</button>
+        <button class="btn btn-sm btn-secondary" onclick="backToDashboard()"><i class="bi bi-arrow-left-circle"></i> Kembali ke Dasbor</button>
     </div>
     <hr>
     <div class="card col-md-8 mx-auto">
@@ -295,7 +303,7 @@
                 <label for="tanggal-ttd">Tanggal Tanda Tangan</label>
                 <input type="date" id="tanggal-ttd" class="form-control">
             </div>
-            <button id="simpan-pengaturan-btn" class="btn btn-primary" onclick="simpanPengaturanCetak()">Simpan Pengaturan</button>
+            <button id="simpan-pengaturan-btn" class="btn btn-primary" onclick="simpanPengaturanCetak()"><i class="bi bi-save"></i> Simpan Pengaturan</button>
             <div id="pengaturan-status" class="mt-3"></div>
         </div>
     </div>
@@ -366,7 +374,7 @@
     function handleLogin() {
         const credentials = { email: document.getElementById('email').value, password: document.getElementById('password').value };
         document.getElementById('login-button').disabled = true;
-        document.getElementById('login-button').innerText = 'Memverifikasi...';
+        document.getElementById('login-button').innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Memverifikasi...';
         document.getElementById('login-alert').style.display = 'none';
         google.script.run.withSuccessHandler(onLoginSuccess).withFailureHandler(onLoginFailure).userLogin(credentials);
     }
@@ -388,7 +396,7 @@
         alertBox.innerText = error.toString();
         alertBox.style.display = 'block';
         button.disabled = false;
-        button.innerText = 'Login';
+        button.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Login';
     }
     
     function loadInitialData(showDashOnComplete) {
@@ -472,7 +480,7 @@
         if (statusData && statusData.length > 0) {
             statusData.forEach(item => {
                 const statusIcon = item.status ? `<span class="text-success font-weight-bold">✔ Selesai</span>` : `<span class="text-danger">✖ Belum</span>`;
-                const actionButton = item.status ? `<button class="btn btn-sm btn-info" onclick="unduhLaporan('${item.email}', '${item.mapel}')">Unduh PDF</button>` : `<button class="btn btn-sm btn-secondary" disabled>Unduh PDF</button>`;
+                const actionButton = item.status ? `<button class="btn btn-sm btn-info" onclick="unduhLaporan('${item.email}', '${item.mapel}')"><i class="bi bi-file-earmark-pdf"></i> Unduh</button>` : `<button class="btn btn-sm btn-secondary" disabled><i class="bi bi-file-earmark-pdf"></i> Unduh</button>`;
                 const row = `<tr><td>${item.nama}</td><td>${item.mapel}</td><td class="text-center">${statusIcon}</td><td class="text-center">${actionButton}</td></tr>`;
                 tableBody.innerHTML += row;
             });
@@ -978,7 +986,7 @@
         const loginButton = document.getElementById('login-button');
         if(loginButton) {
             loginButton.disabled = false;
-            loginButton.innerText = 'Login';
+            loginButton.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Login';
         }
     }
 
