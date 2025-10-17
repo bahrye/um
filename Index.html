@@ -451,7 +451,14 @@
         select.innerHTML = '';
         if (addDefaultOption) select.innerHTML = '<option value="" selected disabled>-- Pilih --</option>';
         if (data && data.length > 0) {
-            data.forEach(item => select.add(new Option(item.deskripsi, item.id_tahun_ajaran)));
+            data.forEach(item => {
+                const lockIcon = item.is_locked ? ' 🔒' : '';
+                const option = new Option(item.deskripsi + lockIcon, item.id_tahun_ajaran);
+                if (item.is_locked) {
+                    option.style.color = '#6c757d';
+                }
+                select.add(option);
+            });
         } else {
             select.innerHTML = '<option value="" selected disabled>Tidak ditemukan</option>';
         }
@@ -571,8 +578,15 @@
         const submitButton = document.getElementById('submit-button');
         const statusDiv = document.getElementById('status');
         const allInputs = document.querySelectorAll('#nilai-table-body .nilai-input');
-
-        if (response.isSudahKirim) {
+        
+        if (response.isTahunAjaranLocked) {
+            submitButton.disabled = true;
+            allInputs.forEach(input => {
+                input.disabled = true;
+            });
+            const msg = `<strong>Tahun Ajaran Terkunci.</strong> Anda tidak dapat lagi mengubah nilai untuk tahun ajaran ini.`;
+            showStatus('status', msg, 'warning', 15000);
+        } else if (response.isSudahKirim) {
             submitButton.disabled = true;
             allInputs.forEach(input => {
                 input.disabled = true;
@@ -643,11 +657,6 @@
         document.getElementById('loading-spinner-cetak').style.display = 'none';
     }
     
-    /**
-     * ===== MODIFIKASI: Menambahkan parameter refreshOnly =====
-     * Jika refreshOnly bernilai true, kontainer preview tidak akan disembunyikan.
-     * Ini digunakan saat memperbarui status setelah kirim atau batal kirim.
-     */
     function loadMapelForCetak(refreshOnly = false) {
         const taId = document.getElementById('tahun-ajaran-select-cetak').value;
         const mapelSelect = document.getElementById('mapel-select-cetak');
@@ -704,7 +713,7 @@
         const data = {
             id_sekolah: loggedInUser.id_sekolah,
             id_tahun_ajaran: taSelect.value,
-            deskripsi_ta: taSelect.options[taSelect.selectedIndex].text,
+            deskripsi_ta: taSelect.options[taSelect.selectedIndex].text.replace(' 🔒', ''),
             nama_mapel: mapelSelect.value,
             email_guru: loggedInUser.email,
         };
@@ -738,18 +747,30 @@
         document.getElementById('preview-tempat-ttd').innerText = data.pengaturan.tempat || '______';
         document.getElementById('preview-tanggal-ttd').innerText = data.pengaturan.tanggalFormatted || '______';
         
+        const kirimBtn = document.getElementById('kirim-btn');
+        const batalKirimBtn = document.getElementById('batal-kirim-btn');
+        const unduhPdfBtn = document.getElementById('unduh-pdf-btn');
+        
         document.getElementById('pdf-status').innerHTML = '';
-        if (data.isSudahKirim) {
-            document.getElementById('kirim-btn').style.display = 'none';
-            document.getElementById('batal-kirim-btn').style.display = 'inline-block';
-            document.getElementById('unduh-pdf-btn').style.display = 'inline-block';
-            document.getElementById('batal-kirim-btn').disabled = false;
-            document.getElementById('unduh-pdf-btn').disabled = false;
+
+        if (data.isTahunAjaranLocked) {
+            showStatus('pdf-status', '<strong>Tahun Ajaran Terkunci.</strong> Status pengiriman tidak dapat diubah lagi.', 'warning', 15000);
+            kirimBtn.style.display = 'inline-block';
+            kirimBtn.disabled = true;
+            batalKirimBtn.style.display = 'none';
+            unduhPdfBtn.style.display = data.isSudahKirim ? 'inline-block' : 'none';
+            unduhPdfBtn.disabled = !data.isSudahKirim;
+        } else if (data.isSudahKirim) {
+            kirimBtn.style.display = 'none';
+            batalKirimBtn.style.display = 'inline-block';
+            unduhPdfBtn.style.display = 'inline-block';
+            batalKirimBtn.disabled = false;
+            unduhPdfBtn.disabled = false;
         } else {
-            document.getElementById('kirim-btn').style.display = 'inline-block';
-            document.getElementById('kirim-btn').disabled = false;
-            document.getElementById('batal-kirim-btn').style.display = 'none';
-            document.getElementById('unduh-pdf-btn').style.display = 'none';
+            kirimBtn.style.display = 'inline-block';
+            kirimBtn.disabled = false;
+            batalKirimBtn.style.display = 'none';
+            unduhPdfBtn.style.display = 'none';
         }
     }
     
@@ -803,7 +824,7 @@
                 localStorage.setItem('cachedMapelWithStatus', JSON.stringify(cachedMapelWithStatus));
             }
         }
-        loadMapelForCetak(true); // MODIFIKASI: Panggil dengan true
+        loadMapelForCetak(true);
         fetchDashboardStatus();
 
       } else {
@@ -841,7 +862,7 @@
                     localStorage.setItem('cachedMapelWithStatus', JSON.stringify(cachedMapelWithStatus));
                 }
             }
-            loadMapelForCetak(true); // MODIFIKASI: Panggil dengan true
+            loadMapelForCetak(true);
             fetchDashboardStatus();
         } else {
             onBatalError({toString: () => response.error});
@@ -881,10 +902,11 @@
 
     function onPdfError(error) {
         const kirimBtn = document.getElementById('kirim-btn');
-        kirimBtn.style.display = 'inline-block';
+        const unduhBtn = document.getElementById('unduh-pdf-btn');
+        
         kirimBtn.disabled = false;
-        document.getElementById('batal-kirim-btn').style.display = 'none';
-        document.getElementById('unduh-pdf-btn').style.display = 'none';
+        unduhBtn.disabled = false;
+
         showStatus('pdf-status', `Terjadi kesalahan: ${error.toString()}`, 'danger');
     }
 
