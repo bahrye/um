@@ -295,14 +295,21 @@
     <div class="card col-md-8 mx-auto">
         <div class="card-body">
             <p class="text-muted">Pengaturan ini akan digunakan pada bagian tanda tangan di dokumen PDF yang akan diunduh.</p>
+            
             <div class="form-group">
-                <label for="tempat-ttd">Tempat Tanda Tangan</label>
-                <input type="text" id="tempat-ttd" class="form-control" placeholder="Contoh: Butung">
+                <label for="tempat-ttd">Tempat Tanda Tangan (Otomatis)</label>
+                <input type="text" id="tempat-ttd" class="form-control" placeholder="Mengambil data dari sekolah..." readonly>
             </div>
+            
             <div class="form-group">
-                <label for="tanggal-ttd">Tanggal Tanda Tangan</label>
-                <input type="date" id="tanggal-ttd" class="form-control">
+                <label for="tanggal-ttd-select">Opsi Tanggal Tanda Tangan</label>
+                <select id="tanggal-ttd-select" class="form-control">
+                    <option value="STATUS_KIRIM">Tanggal Status Kirim (Tanggal berjalan/hari ini)</option>
+                    <option value="SISTEM">Tanggal oleh Sistem (Sesuai pengaturan sekolah)</option>
+                </select>
+                <small class="form-text text-muted">Tanggal akan dikunci di PDF setelah Anda menekan "Kirim Status".</small>
             </div>
+            
             <button id="simpan-pengaturan-btn" class="btn btn-primary" onclick="simpanPengaturanCetak()"><i class="bi bi-save"></i> Simpan Pengaturan</button>
             <div id="pengaturan-status" class="mt-3"></div>
         </div>
@@ -960,48 +967,81 @@
     function goToPengaturanCetak() {
         showView('pengaturan-cetak-view');
         document.getElementById('pengaturan-status').innerHTML = '';
+        
         const tempatInput = document.getElementById('tempat-ttd');
-        const tanggalInput = document.getElementById('tanggal-ttd');
+        const tanggalSelect = document.getElementById('tanggal-ttd-select'); // [UBAH]
         const simpanBtn = document.getElementById('simpan-pengaturan-btn');
+        
         tempatInput.value = '';
         tempatInput.placeholder = 'Memuat data...';
-        tanggalInput.value = '';
-        tempatInput.disabled = true;
-        tanggalInput.disabled = true;
+        tempatInput.disabled = true; // disable sementara loading
+        tanggalSelect.disabled = true; // [UBAH]
         simpanBtn.disabled = true;
-        google.script.run.withSuccessHandler(onPengaturanLoaded).getPengaturanCetak(loggedInUser.email);
+        
+        // [UBAH] Kirim email dan id_sekolah
+        google.script.run
+            .withSuccessHandler(onPengaturanLoaded)
+            .getPengaturanCetak(loggedInUser.email, loggedInUser.id_sekolah);
     }
 
     function onPengaturanLoaded(pengaturan) {
+        // [BARU] Cek jika ada error dari backend
+        if (pengaturan.error) {
+            showStatus('pengaturan-status', 'Gagal memuat pengaturan: ' + pengaturan.error, 'danger');
+            document.getElementById('tempat-ttd').placeholder = 'Gagal memuat';
+            return;
+        }
+
         cachedPengaturan = pengaturan;
         localStorage.setItem('cachedPengaturan', JSON.stringify(pengaturan));
+        
         const tempatInput = document.getElementById('tempat-ttd');
-        const tanggalInput = document.getElementById('tanggal-ttd');
+        const tanggalSelect = document.getElementById('tanggal-ttd-select'); // [UBAH]
         const simpanBtn = document.getElementById('simpan-pengaturan-btn');
-        tempatInput.placeholder = 'Contoh: Butung';
+        
+        tempatInput.placeholder = 'Tempat Tdk Ditemukan';
         tempatInput.disabled = false;
-        tanggalInput.disabled = false;
+        // tempatInput.readOnly = true; // (Sudah di-set di HTML)
+        
+        tanggalSelect.disabled = false; // [UBAH]
         simpanBtn.disabled = false;
-        tempatInput.value = pengaturan.tempat || '';
-        tanggalInput.value = pengaturan.tanggal || '';
+        
+        tempatInput.value = pengaturan.tempat || ''; // [UBAH] Data dari db_sekolah
+        tanggalSelect.value = pengaturan.preferensi_tanggal || 'STATUS_KIRIM'; // [UBAH]
     }
 
     function simpanPengaturanCetak() {
-        const tempat = document.getElementById('tempat-ttd').value;
-        const tanggal = document.getElementById('tanggal-ttd').value;
+        const preferensi = document.getElementById('tanggal-ttd-select').value; // [UBAH]
         const button = document.getElementById('simpan-pengaturan-btn');
+        
         showStatus('pengaturan-status', 'Menyimpan...', 'info', 0, true);
         button.disabled = true;
-        const pengaturan = { email: loggedInUser.email, tempat: tempat, tanggal: tanggal };
-        google.script.run.withSuccessHandler(onPengaturanSaved).withFailureHandler(onPengaturanSaveFailed).savePengaturanCetak(pengaturan);
+        
+        // [UBAH] Kirim objek pengaturan baru
+        const pengaturan = { 
+            email: loggedInUser.email, 
+            preferensi: preferensi 
+        };
+        
+        google.script.run
+            .withSuccessHandler(onPengaturanSaved)
+            .withFailureHandler(onPengaturanSaveFailed)
+            .savePengaturanCetak(pengaturan);
     }
 
     function onPengaturanSaved(response) {
         document.getElementById('simpan-pengaturan-btn').disabled = false;
         if(response.success) {
             showStatus('pengaturan-status', 'Pengaturan berhasil disimpan.', 'success');
-            cachedPengaturan = { tempat: document.getElementById('tempat-ttd').value, tanggal: document.getElementById('tanggal-ttd').value };
-            localStorage.setItem('cachedPengaturan', JSON.stringify(cachedPengaturan));
+            
+            // [UBAH] Update cache lokal dengan preferensi baru
+            if(cachedPengaturan) {
+                cachedPengaturan.preferensi_tanggal = document.getElementById('tanggal-ttd-select').value;
+                localStorage.setItem('cachedPengaturan', JSON.stringify(cachedPengaturan));
+            } else {
+                // Jika cache belum ada, panggil ulang untuk sinkronisasi
+                goToPengaturanCetak();
+            }
         } else {
             showStatus('pengaturan-status', `Gagal menyimpan: ${response.error}`, 'danger');
         }
