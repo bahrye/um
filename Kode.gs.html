@@ -84,7 +84,7 @@ function getNilaiSheetByTahunAjaran(id_tahun_ajaran) {
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Input Nilai Ujian Madrasah')
-    .setFaviconUrl("https://i.imgur.com/JZpABrR.png")
+    .setFaviconUrl("https://images.icon-icons.com/1918/PNG/512/iconfinder-document03-1622833_121957.png")
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 }
 
@@ -270,7 +270,7 @@ function simpanAtauUpdateNilai(dataNilai) {
 }
 
 /**
- * ===== DIPERBARUI: Menambahkan proteksi untuk tahun ajaran yang terkunci =====
+ * ===== DIPERBARUI: Menambahkan proteksi dan menyimpan TANGGAL TTD ke Kolom F =====
  */
 function kirimStatusNilai(data) {
   try {
@@ -280,11 +280,32 @@ function kirimStatusNilai(data) {
       return { success: false, error: "Gagal mengirim. Tahun Ajaran ini telah dikunci." };
     }
 
+    // 1. Dapatkan id_sekolah guru
+    const guruData = GURU_SHEET.getDataRange().getValues();
+    const guruInfoRow = guruData.find(row => row[0].toLowerCase() === email_guru.toLowerCase());
+    if (!guruInfoRow) throw new Error("Data guru tidak ditemukan.");
+    const id_sekolah = guruInfoRow[3];
+
+    // 2. Dapatkan preferensi cetak guru
+    const pengaturan = getPengaturanCetak(email_guru, id_sekolah);
+    let tanggal_to_save;
+
+    if (pengaturan.preferensi_tanggal === 'SISTEM' && pengaturan.tanggal_sistem) {
+      // Ambil tanggal dari db_sekolah (Kolom G)
+      const parts = pengaturan.tanggal_sistem.split('-');
+      tanggal_to_save = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    } else {
+      // (Default) Ambil tanggal hari ini
+      tanggal_to_save = new Date();
+    }
+
     const key = `${id_tahun_ajaran}_${email_guru.toLowerCase()}_${nama_mapel}`;
     const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues();
     const existingKeys = statusData.map(row => row[0]);
+    
     if (!existingKeys.includes(key)) {
-      STATUS_KIRIM_SHEET.appendRow([key, id_tahun_ajaran, email_guru, nama_mapel, new Date()]);
+      // Kolom A-E (Original) + Kolom F (Tanggal TTD)
+      STATUS_KIRIM_SHEET.appendRow([key, id_tahun_ajaran, email_guru, nama_mapel, new Date(), tanggal_to_save]);
     }
     return { success: true, message: "Status berhasil dikirim." };
   } catch (e) {
@@ -352,7 +373,7 @@ function getDashboardStatus(id_sekolah, id_tahun_ajaran) {
 }
 
 /**
- * ===== DIPERBARUI: Mengirim status kunci tahun ajaran ke frontend dan memperbaiki penanganan tanggal =====
+ * ===== DIPERBARUI: Logika baru untuk Tempat dan Tanggal TTD =====
  */
 function getCetakData(req) {
   try {
@@ -366,34 +387,69 @@ function getCetakData(req) {
     const sekolahData = SEKOLAH_SHEET.getDataRange().getValues().slice(1);
     const sekolahInfoRow = sekolahData.find(row => row[0] == req.id_sekolah);
     const sekolahInfo = { kepala_sekolah: sekolahInfoRow ? sekolahInfoRow[3] : 'Tdk Ditemukan', nip_kepsek: sekolahInfoRow ? sekolahInfoRow[4] : '-' };
+    
     const guruData = GURU_SHEET.getDataRange().getValues().slice(1);
     const guruInfoRow = guruData.find(row => row[0].toLowerCase() === req.email_guru.toLowerCase());
     const guruInfo = { nama: guruInfoRow ? guruInfoRow[2] : 'Guru Tdk Ditemukan' };
-    const pengaturan = getPengaturanCetak(req.email_guru);
 
-    // [PERBAIKAN] Logika baru untuk menangani tanggal agar tidak bergeser karena zona waktu
-    if (pengaturan.tanggal) {
-        // String tanggal 'yyyy-MM-dd' dari sheet di-parse sebagai UTC oleh `new Date()`.
-        // Untuk menghindari pergeseran hari, kita buat objek Date baru dari komponen tahun, bulan, dan hari
-        // yang akan menggunakan zona waktu lokal skrip, bukan UTC.
-        const parts = pengaturan.tanggal.split('-');
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1; // Bulan di JavaScript dimulai dari 0 (Januari)
-        const day = parseInt(parts[2], 10);
-        const d = new Date(year, month, day);
-        
-        pengaturan.tanggalFormatted = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-    }
+    // [UBAH] Panggil getPengaturanCetak dengan id_sekolah
+    const pengaturan = getPengaturanCetak(req.email_guru, req.id_sekolah);
 
+    // Ambil status kirim
     const keyCek = `${req.id_tahun_ajaran}_${req.email_guru.toLowerCase()}_${req.nama_mapel}`;
     const statusData = STATUS_KIRIM_SHEET.getDataRange().getValues().slice(1);
-    const sentStatusSet = statusData.reduce((set, row) => { set.add(row[0]); return set; }, new Set());
-    const isSudahKirim = sentStatusSet.has(keyCek);
+    let statusKirimRow = null;
+    for (const row of statusData) {
+        if (row[0] === keyCek) {
+            statusKirimRow = row;
+            break;
+        }
+    }
+    const isSudahKirim = (statusKirimRow !== null);
+
+    // [LOGIKA BARU] Menentukan Tanggal Tanda Tangan
+    let tanggalFinalRaw;
+    if (isSudahKirim && statusKirimRow[5]) { // [PENTING] Cek Kolom F (index 5)
+        // 1. Jika sudah kirim, ambil dari Kolom F
+        tanggalFinalRaw = statusKirimRow[5];
+    } else if (pengaturan.preferensi_tanggal === 'SISTEM' && pengaturan.tanggal_sistem) {
+        // 2. Jika belum kirim & preferensi = SISTEM
+        tanggalFinalRaw = pengaturan.tanggal_sistem; // Ini string 'yyyy-MM-dd'
+    } else {
+        // 3. Jika belum kirim & preferensi = STATUS_KIRIM (Default)
+        tanggalFinalRaw = new Date(); // Tanggal hari ini
+    }
+
+    // Format tanggal final
+    let tanggalFormattedFinal = '______';
+    try {
+      let d;
+      if (tanggalFinalRaw instanceof Date) {
+        d = tanggalFinalRaw;
+      } else if (typeof tanggalFinalRaw === 'string' && tanggalFinalRaw.includes('-')) {
+        // Handle string 'yyyy-MM-dd'
+        const parts = tanggalFinalRaw.split('-');
+        d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      }
+      
+      if (d) {
+        tanggalFormattedFinal = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      }
+    } catch(e) {
+        Logger.log("Error formatting date: " + e);
+    }
+
+    // [UBAH] Gunakan pengaturan.tempat (dari sekolah) dan tanggalFormattedFinal (hasil kalkulasi)
+    const pengaturanFinal = {
+        tempat: pengaturan.tempat, // Dari db_sekolah Kolom C
+        tanggalFormatted: tanggalFormattedFinal // Hasil logika baru
+    };
+    
     return { 
       nilai_siswa: nilaiSiswa, 
       sekolah: sekolahInfo, 
       guru: guruInfo, 
-      pengaturan: pengaturan, 
+      pengaturan: pengaturanFinal, // [UBAH]
       deskripsi_ta: req.deskripsi_ta, 
       nama_mapel: req.nama_mapel,
       isSudahKirim: isSudahKirim,
@@ -487,6 +543,10 @@ function generatePdfAsBase64(data) {
   }
 }
 
+/**
+ * [MODIFIKASI] Menyimpan preferensi tanggal yang dipilih guru
+ * @param {Object} pengaturan - Objek berisi { email, preferensi }
+ */
 function savePengaturanCetak(pengaturan) {
   try {
     const data = PENGATURAN_CETAK_SHEET.getDataRange().getValues();
@@ -498,10 +558,13 @@ function savePengaturanCetak(pengaturan) {
       }
     }
     if (rowIndex > -1) {
-      PENGATURAN_CETAK_SHEET.getRange(rowIndex, 2).setValue(pengaturan.tempat);
-      PENGATURAN_CETAK_SHEET.getRange(rowIndex, 3).setValue(pengaturan.tanggal);
+      // Kolom B (index 2) untuk preferensi
+      PENGATURAN_CETAK_SHEET.getRange(rowIndex, 2).setValue(pengaturan.preferensi);
+      // Kosongkan kolom C (bekas tanggal manual)
+      PENGATURAN_CETAK_SHEET.getRange(rowIndex, 3).setValue(null); 
     } else {
-      PENGATURAN_CETAK_SHEET.appendRow([pengaturan.email, pengaturan.tempat, pengaturan.tanggal]);
+      // Email, Preferensi (Kolom B), Kolom C kosong
+      PENGATURAN_CETAK_SHEET.appendRow([pengaturan.email, pengaturan.preferensi, null]);
     }
     return { success: true };
   } catch (e) {
@@ -509,21 +572,47 @@ function savePengaturanCetak(pengaturan) {
   }
 }
 
-function getPengaturanCetak(email) {
+/**
+ * [MODIFIKASI] Mengambil pengaturan cetak dari db_sekolah dan preferensi guru
+ * @param {string} email - Email guru
+ * @param {string} id_sekolah - ID Sekolah guru
+ * @returns {Object} Objek berisi tempat (dari sekolah), tanggal_sistem (dari sekolah), dan preferensi_tanggal (dari guru)
+ */
+function getPengaturanCetak(email, id_sekolah) {
   try {
+    // 1. Ambil data pengaturan sekolah (Tempat & Tgl Sistem)
+    const sekolahData = SEKOLAH_SHEET.getDataRange().getValues();
+    const sekolahInfoRow = sekolahData.find(row => row[0] == id_sekolah);
+    
+    // Kolom C (index 2) untuk Tempat TTD
+    const tempat_sekolah = sekolahInfoRow ? sekolahInfoRow[2] : 'Tempat Tdk Ditemukan'; 
+    
+    // Kolom G (index 6) untuk Tanggal Sistem
+    let tanggal_sistem_raw = sekolahInfoRow ? sekolahInfoRow[6] : null; 
+    let tanggal_sistem_formatted = null;
+
+    if (tanggal_sistem_raw instanceof Date) {
+      tanggal_sistem_formatted = Utilities.formatDate(tanggal_sistem_raw, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    }
+
+    // 2. Ambil preferensi guru (Kita gunakan Kolom B untuk preferensi)
     const data = PENGATURAN_CETAK_SHEET.getDataRange().getValues();
+    let preferensi = 'STATUS_KIRIM'; // Default jika belum di-set
     for (let i = 1; i < data.length; i++) {
       if (data[i][0].toLowerCase() === email.toLowerCase()) {
-        let tanggal = data[i][2];
-        if (tanggal instanceof Date) {
-          tanggal = Utilities.formatDate(tanggal, Session.getScriptTimeZone(), "yyyy-MM-dd");
-        }
-        return { tempat: data[i][1], tanggal: tanggal };
+        preferensi = data[i][1] || 'STATUS_KIRIM'; // Kolom B (index 1)
+        break;
       }
     }
-    return {};
+    
+    return { 
+      tempat: tempat_sekolah, 
+      tanggal_sistem: tanggal_sistem_formatted, 
+      preferensi_tanggal: preferensi // Pilihan guru: 'STATUS_KIRIM' or 'SISTEM'
+    };
   } catch(e) {
-    return {};
+    Logger.log(e);
+    return { error: e.toString() };
   }
 }
 
